@@ -2,142 +2,127 @@ import * as Speech from 'expo-speech';
 import { Platform } from 'react-native';
 
 /**
- * Speech service using the Web Speech API (SpeechRecognition) for speech-to-text
- * and expo-speech for text-to-speech.
- *
- * Web Speech API works in Chrome, Edge, Safari (including mobile).
- * For native iOS/Android, swap this for expo-av recording + Deepgram/Whisper API.
+ * Speech service using MediaRecorder API for recording + server-side Whisper
+ * for transcription. Works on all mobile browsers (iPhone Safari, Chrome, etc.)
  */
 
-// ── Web Speech API types ────────────────────────────────────────────────────
-interface SpeechRecognitionEvent {
-  results: SpeechRecognitionResultList;
-  resultIndex: number;
-}
-
-interface SpeechRecognitionResultList {
-  length: number;
-  item(index: number): SpeechRecognitionResult;
-  [index: number]: SpeechRecognitionResult;
-}
-
-interface SpeechRecognitionResult {
-  isFinal: boolean;
-  length: number;
-  item(index: number): SpeechRecognitionAlternative;
-  [index: number]: SpeechRecognitionAlternative;
-}
-
-interface SpeechRecognitionAlternative {
-  transcript: string;
-  confidence: number;
-}
-
-interface SpeechRecognitionInstance {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  maxAlternatives: number;
-  start(): void;
-  stop(): void;
-  abort(): void;
-  onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: ((event: { error: string; message?: string }) => void) | null;
-  onend: (() => void) | null;
-  onstart: (() => void) | null;
-}
-
-// ── State ───────────────────────────────────────────────────────────────────
-let recognition: SpeechRecognitionInstance | null = null;
+let mediaRecorder: any = null;
+let audioChunks: Blob[] = [];
 let resolveRecording: ((text: string) => void) | null = null;
-let accumulatedTranscript = '';
 let isRecording = false;
-
-function getSpeechRecognition(): SpeechRecognitionInstance | null {
-  if (Platform.OS !== 'web') return null;
-
-  const win = window as any;
-  const SpeechRecognition = win.SpeechRecognition || win.webkitSpeechRecognition;
-  if (!SpeechRecognition) return null;
-
-  return new SpeechRecognition() as SpeechRecognitionInstance;
-}
-
-// ── Recording (Speech-to-Text) ──────────────────────────────────────────────
+let audioStream: any = null;
 
 export async function startRecording(): Promise<void> {
   if (Platform.OS !== 'web') {
-    console.log('[Speech] Recording not supported on this platform yet');
+    console.log('[Speech] Recording not supported on native yet');
     return;
   }
-
-  const rec = getSpeechRecognition();
-  if (!rec) {
-    console.warn('[Speech] SpeechRecognition not available in this browser');
-    return;
-  }
-
-  accumulatedTranscript = '';
-  isRecording = true;
-
-  rec.lang = 'es-ES';
-  rec.interimResults = true;
-  rec.continuous = true;
-  rec.maxAlternatives = 1;
-
-  rec.onresult = (event: SpeechRecognitionEvent) => {
-    let finalTranscript = '';
-    for (let i = 0; i < event.results.length; i++) {
-      const result = event.results[i];
-      if (result.isFinal) {
-        finalTranscript += result[0].transcript;
-      }
-    }
-    if (finalTranscript) {
-      accumulatedTranscript = finalTranscript;
-    }
-  };
-
-  rec.onerror = (event) => {
-    console.warn('[Speech] Recognition error:', event.error);
-    if (event.error === 'not-allowed') {
-      console.error('[Speech] Microphone permission denied');
-    }
-  };
-
-  rec.onend = () => {
-    isRecording = false;
-    if (resolveRecording) {
-      const text = accumulatedTranscript.trim();
-      resolveRecording(text || '(no speech detected)');
-      resolveRecording = null;
-    }
-  };
-
-  recognition = rec;
 
   try {
-    rec.start();
+    // Request microphone access
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        sampleRate: 16000,
+      },
+    });
+
+    audioStream = stream;
+    audioChunks = [];
+
+    // Use webm if supported, fall back to mp4 for Safari
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm')
+      ? 'audio/webm'
+      : MediaRecorder.isTypeSupported('audio/mp4')
+      ? 'audio/mp4'
+      : '';
+
+    const options: any = {};
+    if (mimeType) options.mimeType = mimeType;
+
+    mediaRecorder = new MediaRecorder(stream, options);
+
+    mediaRecorder.ondataavailable = (event: any) => {
+      if (event.data && event.data.size > 0) {
+        audioChunks.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = async () => {
+      // Stop all tracks to release the microphone
+      stream.getTracks().forEach((track: any) => track.stop());
+      audioStream = null;
+
+      const audioBlob = new Blob(audioChunks, {
+        type: mimeType || 'audio/webm',
+      });
+
+      // Send to our backend for Whisper transcription
+      try {
+        const response = await fetch('/api/transcribe', {
+          method: 'POST',
+          body: audioBlob,
+          headers: {
+            'Content-Type': 'application/octet-stream',
+          },
+        });
+
+        const data = await response.json();
+        const text = data.text?.trim() || '';
+
+        if (resolveRecording) {
+          resolveRecording(text || '(no speech detected)');
+          resolveRecording = null;
+        }
+      } catch (err) {
+        console.error('[Speech] Transcription error:', err);
+        if (resolveRecording) {
+          resolveRecording('(transcription failed)');
+          resolveRecording = null;
+        }
+      }
+    };
+
+    mediaRecorder.onerror = (event: any) => {
+      console.error('[Speech] MediaRecorder error:', event.error);
+      if (resolveRecording) {
+        resolveRecording('(recording error)');
+        resolveRecording = null;
+      }
+    };
+
+    // Collect data every second
+    mediaRecorder.start(1000);
+    isRecording = true;
     console.log('[Speech] Recording started');
-  } catch (err) {
+  } catch (err: any) {
     console.error('[Speech] Failed to start recording:', err);
     isRecording = false;
+
+    if (err.name === 'NotAllowedError') {
+      throw new Error('Microphone permission denied. Please allow microphone access and try again.');
+    }
+    throw err;
   }
 }
 
 export async function stopRecording(): Promise<string> {
   return new Promise<string>((resolve) => {
-    if (!recognition || !isRecording) {
-      resolve(accumulatedTranscript.trim() || '(no speech detected)');
+    if (!mediaRecorder || !isRecording) {
+      resolve('(no recording)');
       return;
     }
 
     resolveRecording = resolve;
+    isRecording = false;
 
     try {
-      recognition.stop();
+      mediaRecorder.stop();
     } catch {
-      resolve(accumulatedTranscript.trim() || '(no speech detected)');
+      resolve('(failed to stop recording)');
       resolveRecording = null;
     }
   });
@@ -167,9 +152,4 @@ export async function stopAudio(): Promise<void> {
   if (isSpeaking) {
     await Speech.stop();
   }
-}
-
-export async function getSpeechToTextResult(audioUri: string): Promise<string> {
-  console.log('[Speech] Processing audio from:', audioUri);
-  return '(not implemented for audio files)';
 }
