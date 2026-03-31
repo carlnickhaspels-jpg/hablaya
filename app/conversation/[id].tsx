@@ -238,66 +238,35 @@ export default function ConversationScreen() {
 
   const handleMicPress = useCallback(async () => {
     if (state === 'recording') {
-      // Stop recording
+      // Stop recording and process
       setState('processing');
       const transcribedText = await stopRecording();
 
-      const { score } = await generatePronunciationFeedback(transcribedText);
+      if (transcribedText && transcribedText !== '(no speech detected)') {
+        const { score } = await generatePronunciationFeedback(transcribedText);
 
-      const userMessage: Message = {
-        id: generateId(),
-        role: 'user',
-        content: transcribedText,
-        timestamp: new Date().toISOString(),
-        pronunciationScore: score,
-      };
+        const userMessage: Message = {
+          id: generateId(),
+          role: 'user',
+          content: transcribedText,
+          timestamp: new Date().toISOString(),
+          pronunciationScore: score,
+        };
 
-      const newCount = userMessageCount + 1;
-      setUserMessageCount(newCount);
-
-      setMessages((prev) => {
-        const updated = [...prev, userMessage];
-        addTutorResponse(updated, corrections);
-        return updated;
-      });
+        setUserMessageCount((prev) => prev + 1);
+        setMessages((prev) => {
+          const updated = [...prev, userMessage];
+          addTutorResponse(updated, corrections);
+          return updated;
+        });
+      } else {
+        // No speech detected, go back to idle
+        setState('idle');
+      }
     } else if (state === 'idle') {
-      // Start recording
+      // Start recording — user taps again to stop
       await startRecording();
       setState('recording');
-
-      // Auto-stop after 3 seconds for mock
-      setTimeout(async () => {
-        setState((current) => {
-          if (current === 'recording') {
-            // Trigger stop
-            (async () => {
-              const transcribedText = await stopRecording();
-              const generateScore = async () => {
-                const { score } = await generatePronunciationFeedback(transcribedText);
-                return score;
-              };
-              generateScore().then((score) => {
-                const userMessage: Message = {
-                  id: generateId(),
-                  role: 'user',
-                  content: transcribedText,
-                  timestamp: new Date().toISOString(),
-                  pronunciationScore: score,
-                };
-
-                setUserMessageCount((prev) => prev + 1);
-                setMessages((prev) => {
-                  const updated = [...prev, userMessage];
-                  addTutorResponse(updated, corrections);
-                  return updated;
-                });
-              });
-            })();
-            return 'processing';
-          }
-          return current;
-        });
-      }, 3000);
     }
   }, [state, userMessageCount, corrections, addTutorResponse]);
 

@@ -1,114 +1,149 @@
 import * as Speech from 'expo-speech';
+import { Platform } from 'react-native';
 
 /**
- * ─────────────────────────────────────────────────────────────────────────────
- * FUTURE API INTEGRATIONS
- * ─────────────────────────────────────────────────────────────────────────────
+ * Speech service using the Web Speech API (SpeechRecognition) for speech-to-text
+ * and expo-speech for text-to-speech.
  *
- * SPEECH-TO-TEXT (Deepgram):
- * ```ts
- * import { createClient, LiveTranscriptionEvents } from '@deepgram/sdk';
- *
- * const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
- *
- * async function transcribeAudio(audioUri: string): Promise<string> {
- *   const { result } = await deepgram.listen.prerecorded.transcribeFile(
- *     fs.readFileSync(audioUri),
- *     {
- *       model: 'nova-2',
- *       language: 'es',
- *       smart_format: true,
- *       punctuate: true,
- *     }
- *   );
- *   return result?.results?.channels[0]?.alternatives[0]?.transcript ?? '';
- * }
- * ```
- *
- * TEXT-TO-SPEECH (ElevenLabs):
- * ```ts
- * import { ElevenLabsClient } from 'elevenlabs';
- *
- * const elevenlabs = new ElevenLabsClient({ apiKey: process.env.ELEVENLABS_API_KEY });
- *
- * async function generateSpeech(text: string): Promise<string> {
- *   const audio = await elevenlabs.generate({
- *     voice: 'Rachel', // or a Spanish-speaking voice ID
- *     text,
- *     model_id: 'eleven_multilingual_v2',
- *   });
- *   // Save audio buffer to a local file and return the URI
- *   const uri = `${FileSystem.cacheDirectory}tts_${Date.now()}.mp3`;
- *   await FileSystem.writeAsStringAsync(uri, audio, { encoding: 'base64' });
- *   return uri;
- * }
- * ```
- *
- * RECORDING (expo-av):
- * ```ts
- * import { Audio } from 'expo-av';
- *
- * let recording: Audio.Recording | null = null;
- *
- * async function startRealRecording() {
- *   await Audio.requestPermissionsAsync();
- *   await Audio.setAudioModeAsync({
- *     allowsRecordingIOS: true,
- *     playsInSilentModeIOS: true,
- *   });
- *   recording = new Audio.Recording();
- *   await recording.prepareToRecordAsync(
- *     Audio.RecordingOptionsPresets.HIGH_QUALITY
- *   );
- *   await recording.startAsync();
- * }
- *
- * async function stopRealRecording(): Promise<string> {
- *   if (!recording) throw new Error('No active recording');
- *   await recording.stopAndUnloadAsync();
- *   const uri = recording.getURI();
- *   recording = null;
- *   return uri ?? '';
- * }
- * ```
- * ─────────────────────────────────────────────────────────────────────────────
+ * Web Speech API works in Chrome, Edge, Safari (including mobile).
+ * For native iOS/Android, swap this for expo-av recording + Deepgram/Whisper API.
  */
 
-const mockUserUtterances: string[] = [
-  'Hola, me llamo Carlos y soy de Estados Unidos.',
-  'Sí, me gusta mucho viajar. He visitado México dos veces.',
-  'Quiero practicar mi español porque voy a ir a Colombia el próximo mes.',
-  'Me gustan los tacos y las enchiladas. La comida mexicana es mi favorita.',
-  'Trabajo como ingeniero de software en una empresa grande.',
-  'El fin de semana pasado fui al parque con mis amigos.',
-  'No entiendo muy bien. ¿Puedes repetir más despacio, por favor?',
-  'Creo que el español es un idioma muy bonito y musical.',
-  'Mi pasatiempo favorito es leer libros y ver películas en español.',
-  'Estoy un poco nervioso pero quiero seguir practicando.',
-  'Ayer comí en un restaurante nuevo y la comida estaba deliciosa.',
-  'Me gustaría aprender más vocabulario sobre viajes y turismo.',
-  'Prefiero el café con leche por la mañana.',
-  'Tengo dos hermanos y una hermana. Mi familia es muy unida.',
-  'Estoy aprendiendo español desde hace seis meses.',
-  'Necesito hablar mejor para mi trabajo. Tenemos clientes en México.',
-  'El clima aquí es muy diferente al de mi país.',
-  'Me encanta la música latina, especialmente la salsa y el reggaetón.',
-  'Los fines de semana me gusta cocinar platos nuevos.',
-  'Todavía me cuesta trabajo conjugar los verbos en pasado.',
-];
+// ── Web Speech API types ────────────────────────────────────────────────────
+interface SpeechRecognitionEvent {
+  results: SpeechRecognitionResultList;
+  resultIndex: number;
+}
 
-let utteranceIndex = 0;
+interface SpeechRecognitionResultList {
+  length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+interface SpeechRecognitionInstance {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  maxAlternatives: number;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: { error: string; message?: string }) => void) | null;
+  onend: (() => void) | null;
+  onstart: (() => void) | null;
+}
+
+// ── State ───────────────────────────────────────────────────────────────────
+let recognition: SpeechRecognitionInstance | null = null;
+let resolveRecording: ((text: string) => void) | null = null;
+let accumulatedTranscript = '';
+let isRecording = false;
+
+function getSpeechRecognition(): SpeechRecognitionInstance | null {
+  if (Platform.OS !== 'web') return null;
+
+  const win = window as any;
+  const SpeechRecognition = win.SpeechRecognition || win.webkitSpeechRecognition;
+  if (!SpeechRecognition) return null;
+
+  return new SpeechRecognition() as SpeechRecognitionInstance;
+}
+
+// ── Recording (Speech-to-Text) ──────────────────────────────────────────────
 
 export async function startRecording(): Promise<void> {
-  console.log('[Speech] Recording started');
+  if (Platform.OS !== 'web') {
+    console.log('[Speech] Recording not supported on this platform yet');
+    return;
+  }
+
+  const rec = getSpeechRecognition();
+  if (!rec) {
+    console.warn('[Speech] SpeechRecognition not available in this browser');
+    return;
+  }
+
+  accumulatedTranscript = '';
+  isRecording = true;
+
+  rec.lang = 'es-ES';
+  rec.interimResults = true;
+  rec.continuous = true;
+  rec.maxAlternatives = 1;
+
+  rec.onresult = (event: SpeechRecognitionEvent) => {
+    let finalTranscript = '';
+    for (let i = 0; i < event.results.length; i++) {
+      const result = event.results[i];
+      if (result.isFinal) {
+        finalTranscript += result[0].transcript;
+      }
+    }
+    if (finalTranscript) {
+      accumulatedTranscript = finalTranscript;
+    }
+  };
+
+  rec.onerror = (event) => {
+    console.warn('[Speech] Recognition error:', event.error);
+    if (event.error === 'not-allowed') {
+      console.error('[Speech] Microphone permission denied');
+    }
+  };
+
+  rec.onend = () => {
+    isRecording = false;
+    if (resolveRecording) {
+      const text = accumulatedTranscript.trim();
+      resolveRecording(text || '(no speech detected)');
+      resolveRecording = null;
+    }
+  };
+
+  recognition = rec;
+
+  try {
+    rec.start();
+    console.log('[Speech] Recording started');
+  } catch (err) {
+    console.error('[Speech] Failed to start recording:', err);
+    isRecording = false;
+  }
 }
 
 export async function stopRecording(): Promise<string> {
-  console.log('[Speech] Recording stopped');
-  const text = mockUserUtterances[utteranceIndex % mockUserUtterances.length];
-  utteranceIndex += 1;
-  return text;
+  return new Promise<string>((resolve) => {
+    if (!recognition || !isRecording) {
+      resolve(accumulatedTranscript.trim() || '(no speech detected)');
+      return;
+    }
+
+    resolveRecording = resolve;
+
+    try {
+      recognition.stop();
+    } catch {
+      resolve(accumulatedTranscript.trim() || '(no speech detected)');
+      resolveRecording = null;
+    }
+  });
 }
+
+// ── Text-to-Speech ──────────────────────────────────────────────────────────
 
 export async function playAudio(text: string): Promise<void> {
   const isSpeaking = await Speech.isSpeakingAsync();
@@ -136,7 +171,5 @@ export async function stopAudio(): Promise<void> {
 
 export async function getSpeechToTextResult(audioUri: string): Promise<string> {
   console.log('[Speech] Processing audio from:', audioUri);
-  const text = mockUserUtterances[utteranceIndex % mockUserUtterances.length];
-  utteranceIndex += 1;
-  return text;
+  return '(not implemented for audio files)';
 }
