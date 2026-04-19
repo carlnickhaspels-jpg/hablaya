@@ -189,6 +189,11 @@ export default function ConversationScreen() {
       timestamp: new Date().toISOString(),
     };
     setMessages([tutorMessage]);
+
+    // Auto-play greeting so user hears it
+    playAudio(greeting).catch(() => {
+      // Silently ignore (autoplay may be blocked until user interacts)
+    });
   }, [scenario]);
 
   // Auto-scroll to bottom when messages change
@@ -202,8 +207,6 @@ export default function ConversationScreen() {
   const addTutorResponse = useCallback(
     async (allMessages: Message[], allCorrections: Correction[]) => {
       setState('processing');
-
-      await new Promise((resolve) => setTimeout(resolve, 1500));
 
       const { response, corrections: newCorrections } = await generateTutorResponse(
         allMessages,
@@ -232,6 +235,11 @@ export default function ConversationScreen() {
 
       setMessages((prev) => [...prev, tutorMessage]);
       setState('idle');
+
+      // Auto-play the tutor's response so the user hears it
+      playAudio(response).catch(() => {
+        // Silently ignore TTS errors
+      });
     },
     [scenario]
   );

@@ -315,6 +315,40 @@ export async function generateTutorResponse(
   scenario?: Scenario,
   userLevel?: string
 ): Promise<{ response: string; corrections: Correction[] }> {
+  // Try the real AI tutor endpoint first
+  try {
+    const apiResponse = await fetch('/api/tutor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        scenario: scenario
+          ? {
+              title: scenario.title,
+              titleEs: scenario.titleEs,
+              context: scenario.context,
+              theme: scenario.theme,
+            }
+          : null,
+        userLevel: userLevel ?? 'principiante',
+      }),
+    });
+
+    if (apiResponse.ok) {
+      const data = await apiResponse.json();
+      if (data.response) {
+        return {
+          response: data.response,
+          corrections: data.corrections ?? [],
+        };
+      }
+    }
+    console.warn('[AI] Tutor API returned no response, falling back to mock');
+  } catch (err) {
+    console.warn('[AI] Tutor API error, falling back to mock:', err);
+  }
+
+  // Fallback: mock responses if API is unavailable
   const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
   const messageCount = messages.filter((m) => m.role === 'user').length;
 
