@@ -313,7 +313,8 @@ export function getInitialGreeting(scenario?: Scenario): string {
 export async function generateTutorResponse(
   messages: Message[],
   scenario?: Scenario,
-  userLevel?: string
+  userLevel?: string,
+  meta?: { uncertainSegments?: string[]; detectedLanguage?: string }
 ): Promise<{ response: string; corrections: Correction[] }> {
   // Try the real AI tutor endpoint first
   try {
@@ -331,6 +332,8 @@ export async function generateTutorResponse(
             }
           : null,
         userLevel: userLevel ?? 'principiante',
+        uncertainSegments: meta?.uncertainSegments ?? [],
+        detectedLanguage: meta?.detectedLanguage,
       }),
     });
 

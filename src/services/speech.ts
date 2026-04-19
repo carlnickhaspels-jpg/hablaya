@@ -6,9 +6,15 @@ import { Platform } from 'react-native';
  * Voice Activity Detection (VAD) for hands-free conversation mode.
  */
 
+export interface TranscriptionResult {
+  text: string;
+  uncertainSegments?: string[];
+  detectedLanguage?: string;
+}
+
 let mediaRecorder: any = null;
 let audioChunks: Blob[] = [];
-let resolveRecording: ((text: string) => void) | null = null;
+let resolveRecording: ((result: TranscriptionResult) => void) | null = null;
 let rejectRecording: ((err: Error) => void) | null = null;
 let isRecording = false;
 let activeMimeType = '';
@@ -105,8 +111,15 @@ async function beginRecording(stream: MediaStream): Promise<void> {
       const text = (data.text || '').trim();
 
       if (resolveRecording) {
-        if (text) resolveRecording(text);
-        else if (rejectRecording) rejectRecording(new Error('No speech detected.'));
+        if (text) {
+          resolveRecording({
+            text,
+            uncertainSegments: data.uncertainSegments || [],
+            detectedLanguage: data.detectedLanguage,
+          });
+        } else if (rejectRecording) {
+          rejectRecording(new Error('No speech detected.'));
+        }
         resolveRecording = null;
         rejectRecording = null;
       }
@@ -134,8 +147,8 @@ async function beginRecording(stream: MediaStream): Promise<void> {
   console.log(`[Speech] Recording started (mime: ${activeMimeType})`);
 }
 
-export async function stopRecording(): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
+export async function stopRecording(): Promise<TranscriptionResult> {
+  return new Promise<TranscriptionResult>((resolve, reject) => {
     if (!mediaRecorder || !isRecording) {
       reject(new Error('No active recording'));
       return;
@@ -170,7 +183,7 @@ export async function stopRecording(): Promise<string> {
 export interface ConversationCallbacks {
   onSpeechStart?: () => void;
   onSpeechEnd?: () => void;
-  onTranscript?: (text: string) => void;
+  onTranscript?: (result: TranscriptionResult) => void;
   onError?: (err: Error) => void;
   onLevel?: (level: number) => void; // 0..1 audio level for visualization
 }
@@ -289,15 +302,14 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
     const stopAndTranscribe = async () => {
       callbacks.onSpeechEnd?.();
       try {
-        const text = await stopRecording();
-        if (text && text.trim()) {
-          callbacks.onTranscript?.(text);
+        const result = await stopRecording();
+        if (result && result.text && result.text.trim()) {
+          callbacks.onTranscript?.(result);
         }
       } catch (err: any) {
         console.warn('[Speech] VAD stop error:', err.message);
       } finally {
         pendingTranscription = false;
-        // reset for next utterance
         speaking = false;
       }
     };

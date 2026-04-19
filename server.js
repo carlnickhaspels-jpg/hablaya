@@ -22,57 +22,72 @@ const MIME_TYPES = {
 };
 
 // ── HablaYa AI tutor system prompt ──────────────────────────────────────────
-const TUTOR_SYSTEM_PROMPT = `You are HablaYa, a warm and patient personal Spanish conversation tutor. The student is a native Dutch speaker (also speaks English) learning to speak Spanish through real conversation with you.
+const TUTOR_SYSTEM_PROMPT = `You are HablaYa, a warm Spanish tutor for a NATIVE DUTCH speaker who is learning Spanish.
 
-CORE BEHAVIOR:
-- Speak the actual conversation in SPANISH (the language they want to learn)
-- Keep responses SHORT (1-3 sentences) — the student should be talking, not listening
-- Be warm, encouraging, and natural — like a friend, not a textbook
-- Ask questions to keep them speaking
+═══════════════════════════════════════════════
+TWO CORE TEACHING JOBS — DO THESE EVERY TURN:
+═══════════════════════════════════════════════
 
-⚠ CRITICAL LANGUAGE RULE — EXPLANATIONS MUST BE IN DUTCH:
-The student is a beginner and does NOT understand Spanish explanations yet.
-- Conversation = Spanish
-- ANY explanation, translation, or teaching moment = Dutch (or English if it's a Dutch+English mix)
-- When you teach a new word: SPANISH word + DUTCH explanation
-- Format teaching moments using parentheses or em-dash, e.g.:
-  "¡La playa! (= 'het strand' in het Nederlands)"
-  "¿Quieres ir? — 'quieres' betekent 'wil je'"
+🎯 JOB 1 — TRANSLATE STUCK WORDS:
+If the student uses a Dutch or English word in their Spanish sentence (because they don't know it in Spanish):
+→ Give them the SPANISH word
+→ Format: "📚 [Dutch word] = [Spanish word]"
+→ Then use the new word in your reply
 
-CODE-SWITCHING SUPPORT (THE MOST IMPORTANT FEATURE):
-The student WILL use Dutch or English words mid-Spanish-sentence when they don't know a word. When this happens:
+🎯 JOB 2 — FIX MISPRONOUNCED WORDS:
+If you receive a "PRONUNCIATION HINT" telling you a Spanish word was mispronounced:
+→ Give the correct pronunciation guide in Dutch syllables
+→ Format: "🔊 [Spanish word] spreek je uit als: [phonetic in Dutch syllables]"
+→ Example: "🔊 'gracias' spreek je uit als GRA-thias (Spanje) of GRA-sias (Latijns-Amerika)"
 
-1. Recognize the Dutch/English word
-2. Give them the Spanish word
-3. Briefly explain in DUTCH what it means
-4. Use the new Spanish word in your reply
-5. Ask a follow-up question in Spanish to keep them talking
+═══════════════════════════════════════════════
+LANGUAGE RULES:
+═══════════════════════════════════════════════
 
-EXAMPLES (NOTICE: explanations are in Dutch):
+✅ The CONVERSATION itself = SPANISH (because they're learning Spanish)
+✅ ANY EXPLANATION or teaching = DUTCH (Nederlands), because they don't yet understand Spanish well
+❌ NEVER explain grammar, vocabulary, or pronunciation in Spanish
+❌ NEVER give long lectures — keep teaching moments to ONE LINE
+
+═══════════════════════════════════════════════
+FORMAT YOUR REPLY LIKE THIS:
+═══════════════════════════════════════════════
+
+[Spanish conversational reply — 1-2 sentences]
+[Optional: 📚 vocabulary teaching in Dutch — only if they used a NL/EN word]
+[Optional: 🔊 pronunciation tip in Dutch — only if the system flagged a mispronunciation]
+[Spanish question to keep them talking]
+
+═══════════════════════════════════════════════
+EXAMPLES:
+═══════════════════════════════════════════════
 
 Student: "Quiero ir al beach mañana"
-You: "¡La playa! 'Beach' is 'la playa' in het Spaans. ¿A qué playa quieres ir mañana?"
+You: "¡Suena genial!
+📚 'beach' = 'la playa' in het Spaans
+¿A qué playa quieres ir?"
 
-Student: "Mijn familia es muy grande"
-You: "¡Mi familia! 'Mijn' = 'mi' in het Spaans. ¿Cuántas personas hay en tu familia?"
+Student: "Mijn familia es muy grande" (and pronunciation hint flagged "familia")
+You: "¡Qué bonito tener una familia grande!
+📚 'mijn' = 'mi' in het Spaans
+🔊 'familia' spreek je uit als fa-MI-li-a (de klemtoon op 'mi')
+¿Cuántas personas hay en tu familia?"
 
-Student: "Ik wil koffie por favor"
-You: "¡Quiero un café! 'Ik wil' = 'quiero'. ¿Lo quieres con leche of zwart?"
+Student: "Yo soy hambre"
+You: "Casi! Decimos 'tengo hambre' — in het Spaans gebruik je 'tener' (hebben) voor honger, niet 'ser' (zijn). ¿Qué quieres comer?"
 
-Student: "Het weather is muy bonito hoy"
-You: "¡El clima está muy bonito! 'Weather' = 'el clima' of 'el tiempo'. ¿Qué wil je doen met dit mooie weer? (¿Qué quieres hacer hoy?)"
+Student: "Quiero un café por favor" (with pronunciation hint flagged "café")
+You: "¡Por supuesto!
+🔊 'café' spreek je uit als ka-FÉ (klemtoon op de E, met een korte klank)
+¿Lo quieres con leche of zwart?"
 
-CORRECTING SPANISH MISTAKES:
-- Gently correct inline. Brief acknowledgment + correct Spanish + DUTCH explanation if they wouldn't understand the mistake.
-- Example: Student says "Yo soy hambre" → You: "Casi! Decimos 'tengo hambre' (in het Nederlands: 'ik heb honger'). In het Spaans gebruik je 'tener' voor honger, niet 'ser'. ¿Qué quieres comer?"
-
-KEEP IT CONVERSATIONAL:
-- Never give long grammar lectures — short Dutch hint, then back to Spanish
-- Always end with a question in Spanish to keep them speaking
-- Match their energy
-- Celebrate progress in Dutch occasionally: "Heel goed!" or briefly switch to encourage them
-
-REMEMBER: The student needs to UNDERSTAND your teaching. Spanish for the conversation. Dutch for explaining. That's how they learn fast.`;
+═══════════════════════════════════════════════
+TONE:
+═══════════════════════════════════════════════
+- Warm, encouraging, like a patient friend
+- Short replies — student should talk more than you
+- Ask a question in Spanish at the end to keep them speaking
+- Celebrate progress occasionally: "Heel goed!" or "¡Qué bien!"`;
 
 // ── Helper: parse JSON body ─────────────────────────────────────────────────
 async function readJsonBody(req) {
@@ -131,15 +146,13 @@ async function handleTranscribe(req, res) {
     )
   );
 
-  // No language param + no prompt → Whisper auto-detects and transcribes
-  // accurately in the spoken language (es / nl / en / mixed).
-  // The /v1/audio/transcriptions endpoint preserves the original language;
-  // it does NOT translate (that's /v1/audio/translations).
+  // verbose_json gives us per-segment data with avg_logprob,
+  // which we use to flag possibly-mispronounced words for the tutor.
   parts.push(
     Buffer.from(
       `--${boundary}\r\n` +
       `Content-Disposition: form-data; name="response_format"\r\n\r\n` +
-      `json\r\n`
+      `verbose_json\r\n`
     )
   );
 
@@ -171,8 +184,22 @@ async function handleTranscribe(req, res) {
               res.writeHead(500, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: data.error.message || data.error }));
             } else {
+              // Extract uncertain segments (low avg_logprob means low confidence —
+              // likely mispronounced or unclear). Threshold tuned empirically.
+              const uncertainSegments = (data.segments || [])
+                .filter((s) => typeof s.avg_logprob === 'number' && s.avg_logprob < -0.5)
+                .map((s) => s.text.trim())
+                .filter(Boolean);
+
+              const detectedLanguage = data.language || 'unknown';
+              console.log(`[Transcribe] lang=${detectedLanguage}, uncertain=${uncertainSegments.length}`);
+
               res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ text: data.text || '' }));
+              res.end(JSON.stringify({
+                text: data.text || '',
+                detectedLanguage,
+                uncertainSegments,
+              }));
             }
           } catch {
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -212,7 +239,13 @@ async function handleTutor(req, res) {
     return;
   }
 
-  const { messages = [], scenario = null, userLevel = 'principiante' } = body;
+  const {
+    messages = [],
+    scenario = null,
+    userLevel = 'principiante',
+    uncertainSegments = [],
+    detectedLanguage = null,
+  } = body;
 
   // Build system prompt with optional scenario context
   let systemPrompt = TUTOR_SYSTEM_PROMPT;
@@ -221,6 +254,21 @@ async function handleTutor(req, res) {
     systemPrompt += `\n\nCURRENT SCENARIO: ${scenario.title} (${scenario.titleEs})`;
     systemPrompt += `\nSCENARIO CONTEXT: ${scenario.context}`;
     systemPrompt += `\nStay in character for this scenario.`;
+  }
+
+  // Inject pronunciation hints from Whisper confidence data
+  const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
+  if (lastUserMessage && uncertainSegments.length > 0) {
+    systemPrompt += `\n\n⚠ PRONUNCIATION HINT FROM SPEECH-TO-TEXT:`;
+    systemPrompt += `\nThe student's last spoken message contained these UNCERTAIN segments (Whisper had low confidence — they were likely MISPRONOUNCED or unclear):`;
+    uncertainSegments.forEach((seg) => {
+      systemPrompt += `\n  - "${seg}"`;
+    });
+    systemPrompt += `\nIf these contain Spanish words, give a brief pronunciation tip in Dutch using format like: "Tip: 'gracias' spreek je uit als GRA-thias (Spanje) of GRA-sias (Latijns-Amerika), niet GRA-sees."`;
+  }
+
+  if (lastUserMessage && detectedLanguage && detectedLanguage !== 'spanish' && detectedLanguage !== 'es') {
+    systemPrompt += `\n\nNOTE: The student's last message was detected as ${detectedLanguage}, not Spanish. They may have switched to their native language because they got stuck. Help them by giving the Spanish equivalent and continue the conversation in Spanish.`;
   }
 
   // Convert messages to OpenAI format

@@ -33,6 +33,7 @@ import {
   stopConversation,
   pauseConversation,
   resumeConversation,
+  TranscriptionResult,
 } from '@/src/services/speech';
 import MicButton from '@/src/components/MicButton';
 import CorrectionCard from '@/src/components/CorrectionCard';
@@ -231,7 +232,11 @@ export default function ConversationScreen() {
   }, [messages, state]);
 
   const addTutorResponse = useCallback(
-    async (allMessages: Message[], allCorrections: Correction[]) => {
+    async (
+      allMessages: Message[],
+      allCorrections: Correction[],
+      meta?: { uncertainSegments?: string[]; detectedLanguage?: string }
+    ) => {
       setState('processing');
 
       // Pause VAD while AI thinks/speaks so it doesn't pick up its own voice
@@ -240,7 +245,8 @@ export default function ConversationScreen() {
       const { response, corrections: newCorrections } = await generateTutorResponse(
         allMessages,
         scenario,
-        'principiante'
+        'principiante',
+        meta
       );
 
       const tutorMessage: Message = {
@@ -283,11 +289,17 @@ export default function ConversationScreen() {
 
   // Handle a transcribed user utterance from VAD
   const handleUserUtterance = useCallback(
-    async (transcribedText: string) => {
-      if (!transcribedText || !transcribedText.trim()) return;
+    async (result: TranscriptionResult) => {
+      const transcribedText = result.text?.trim();
+      if (!transcribedText) return;
       setErrorMessage(null);
 
-      const { score } = await generatePronunciationFeedback(transcribedText);
+      // Use Whisper confidence for pronunciation score:
+      // fewer uncertain segments = better pronunciation
+      const baseScore = 80;
+      const penalty = (result.uncertainSegments?.length || 0) * 8;
+      const score = Math.max(50, Math.min(95, baseScore - penalty));
+
       const userMessage: Message = {
         id: generateId(),
         role: 'user',
@@ -299,7 +311,10 @@ export default function ConversationScreen() {
       setUserMessageCount((prev) => prev + 1);
       setMessages((prev) => {
         const updated = [...prev, userMessage];
-        addTutorResponse(updated, corrections);
+        addTutorResponse(updated, corrections, {
+          uncertainSegments: result.uncertainSegments,
+          detectedLanguage: result.detectedLanguage,
+        });
         return updated;
       });
     },
