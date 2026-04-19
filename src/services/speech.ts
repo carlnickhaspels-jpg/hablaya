@@ -196,9 +196,9 @@ interface VadConfig {
 }
 
 const DEFAULT_VAD: VadConfig = {
-  threshold: 0.025,
-  silenceMs: 1200,
-  minSpeechMs: 500,
+  threshold: 0.035,    // require louder voice to count as speech
+  silenceMs: 1500,     // wait 1.5s of silence before sending
+  minSpeechMs: 900,    // require nearly a full second of voice (filters out clicks/short noise)
   maxSpeechMs: 15000,
 };
 
@@ -212,6 +212,16 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
     console.log('[Speech] Conversation already active');
     return;
   }
+
+  // Stop any TTS that may still be playing before we open the mic,
+  // otherwise the mic will pick up the AI's own voice.
+  try {
+    if (await Speech.isSpeakingAsync()) {
+      await Speech.stop();
+      // Small grace period for audio output to actually stop
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  } catch {}
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -242,6 +252,8 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
     let lastVoiceAt = 0;
     let pendingTranscription = false;
     let pauseListening = false; // pause during transcription/playback
+    const startedAt = performance.now();
+    const WARMUP_MS = 500; // ignore VAD events for first 500ms to skip click/touch noise
 
     const buffer = new Uint8Array(analyser.frequencyBinCount);
 
@@ -261,6 +273,13 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
 
       const now = performance.now();
       const isVoice = rms > DEFAULT_VAD.threshold;
+
+      // Warm-up: ignore everything during the first WARMUP_MS so the click
+      // sound from tapping the mic button doesn't trigger a recording.
+      if (now - startedAt < WARMUP_MS) {
+        vadAnimationFrame = requestAnimationFrame(tick);
+        return;
+      }
 
       if (!pauseListening && !pendingTranscription) {
         if (isVoice) {

@@ -184,19 +184,55 @@ async function handleTranscribe(req, res) {
               res.writeHead(500, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: data.error.message || data.error }));
             } else {
-              // Extract uncertain segments (low avg_logprob means low confidence —
-              // likely mispronounced or unclear). Threshold tuned empirically.
+              const rawText = (data.text || '').trim();
+
+              // Filter Whisper hallucinations on silence/short audio.
+              // Whisper has well-documented "go-to" phrases it outputs
+              // when there's no real speech.
+              const hallucinations = [
+                'goodbye', 'bye', 'bye!', 'bye-bye',
+                'adios', 'adiós', 'hasta luego', 'chao', 'chau',
+                'thank you', 'thank you.', 'thanks', 'thank you for watching',
+                'gracias', 'gracias.', 'muchas gracias',
+                'subtitles by', 'subtítulos', 'subs by',
+                'music', 'música', '[música]', '(music)',
+                'see you next time', 'see you',
+                'hasta la próxima', 'nos vemos',
+                'silence', 'silencio',
+                '...', '. . .', '.', ',',
+                'you', 'yo', 'oh', 'ah', 'mm', 'hmm',
+                'okay', 'ok', 'vale',
+                'hi', 'hello', 'hola',
+              ];
+
+              const lowerText = rawText.toLowerCase().replace(/[¡¿"'.!?,]/g, '').trim();
+              const isHallucination = hallucinations.some(h => lowerText === h || lowerText === h.replace(/[.!,]/g, ''));
+
+              // Also check: very short transcription with no real content is suspicious
+              const wordCount = rawText.split(/\s+/).filter(Boolean).length;
+              const isTooShort = wordCount <= 2 && rawText.length < 15;
+              const looksLikeHallucination = isHallucination || (isTooShort && hallucinations.some(h => lowerText.includes(h)));
+
+              if (looksLikeHallucination) {
+                console.log(`[Transcribe] Filtered hallucination: "${rawText}"`);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ text: '', filtered: true, reason: 'hallucination' }));
+                resolve();
+                return;
+              }
+
+              // Extract uncertain segments (low avg_logprob means low confidence)
               const uncertainSegments = (data.segments || [])
                 .filter((s) => typeof s.avg_logprob === 'number' && s.avg_logprob < -0.5)
                 .map((s) => s.text.trim())
                 .filter(Boolean);
 
               const detectedLanguage = data.language || 'unknown';
-              console.log(`[Transcribe] lang=${detectedLanguage}, uncertain=${uncertainSegments.length}`);
+              console.log(`[Transcribe] lang=${detectedLanguage}, uncertain=${uncertainSegments.length}, text="${rawText.substring(0, 60)}"`);
 
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({
-                text: data.text || '',
+                text: rawText,
                 detectedLanguage,
                 uncertainSegments,
               }));
