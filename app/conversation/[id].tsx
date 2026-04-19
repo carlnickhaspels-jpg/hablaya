@@ -161,6 +161,7 @@ export default function ConversationScreen() {
   const [showTextInput, setShowTextInput] = useState(false);
   const [textInputValue, setTextInputValue] = useState('');
   const [userMessageCount, setUserMessageCount] = useState(0);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<Date>(new Date());
@@ -248,33 +249,46 @@ export default function ConversationScreen() {
     if (state === 'recording') {
       // Stop recording and process
       setState('processing');
-      const transcribedText = await stopRecording();
+      try {
+        const transcribedText = await stopRecording();
 
-      if (transcribedText && transcribedText !== '(no speech detected)') {
-        const { score } = await generatePronunciationFeedback(transcribedText);
+        if (transcribedText && transcribedText.trim().length > 0) {
+          setErrorMessage(null);
+          const { score } = await generatePronunciationFeedback(transcribedText);
 
-        const userMessage: Message = {
-          id: generateId(),
-          role: 'user',
-          content: transcribedText,
-          timestamp: new Date().toISOString(),
-          pronunciationScore: score,
-        };
+          const userMessage: Message = {
+            id: generateId(),
+            role: 'user',
+            content: transcribedText,
+            timestamp: new Date().toISOString(),
+            pronunciationScore: score,
+          };
 
-        setUserMessageCount((prev) => prev + 1);
-        setMessages((prev) => {
-          const updated = [...prev, userMessage];
-          addTutorResponse(updated, corrections);
-          return updated;
-        });
-      } else {
-        // No speech detected, go back to idle
+          setUserMessageCount((prev) => prev + 1);
+          setMessages((prev) => {
+            const updated = [...prev, userMessage];
+            addTutorResponse(updated, corrections);
+            return updated;
+          });
+        } else {
+          setErrorMessage('No speech detected. Try speaking louder.');
+          setState('idle');
+        }
+      } catch (err: any) {
+        console.error('[Conversation] Recording error:', err);
+        setErrorMessage(err?.message || 'Recording failed. Please try again.');
         setState('idle');
       }
     } else if (state === 'idle') {
       // Start recording — user taps again to stop
-      await startRecording();
-      setState('recording');
+      try {
+        setErrorMessage(null);
+        await startRecording();
+        setState('recording');
+      } catch (err: any) {
+        console.error('[Conversation] Failed to start recording:', err);
+        setErrorMessage(err?.message || 'Could not access microphone.');
+      }
     }
   }, [state, userMessageCount, corrections, addTutorResponse]);
 
@@ -473,6 +487,20 @@ export default function ConversationScreen() {
         </ScrollView>
 
         {/* Bottom Input Area */}
+        {errorMessage && (
+          <TouchableOpacity
+            onPress={() => setErrorMessage(null)}
+            activeOpacity={0.8}
+            style={styles.errorBanner}
+          >
+            <Ionicons name="alert-circle" size={18} color={colors.coral} />
+            <Text style={styles.errorBannerText} numberOfLines={2}>
+              {errorMessage}
+            </Text>
+            <Ionicons name="close" size={16} color={colors.coral} />
+          </TouchableOpacity>
+        )}
+
         <View style={[styles.bottomArea, { paddingBottom: Math.max(insets.bottom, 16) }]}>
           {showTextInput ? (
             <View style={styles.textInputRow}>
@@ -718,6 +746,27 @@ const styles = StyleSheet.create({
     height: 28,
     backgroundColor: colors.coral,
     borderRadius: 2,
+  },
+
+  // ── Error Banner ────────────────────────────────────────
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.coral + '15',
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.coral + '40',
+  },
+  errorBannerText: {
+    flex: 1,
+    fontSize: typography.sizes.sm,
+    color: colors.coral,
+    fontWeight: typography.weights.medium,
   },
 
   // ── Bottom Area ─────────────────────────────────────────

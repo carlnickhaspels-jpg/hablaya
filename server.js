@@ -85,14 +85,30 @@ async function handleTranscribe(req, res) {
   for await (const chunk of req) chunks.push(chunk);
   const body = Buffer.concat(chunks);
 
+  const incomingType = (req.headers['content-type'] || 'audio/webm').toLowerCase();
+  // Map browser mime to filename extension Whisper accepts
+  let filename = 'audio.webm';
+  if (incomingType.includes('mp4') || incomingType.includes('aac')) filename = 'audio.mp4';
+  else if (incomingType.includes('ogg')) filename = 'audio.ogg';
+  else if (incomingType.includes('wav')) filename = 'audio.wav';
+
+  console.log(`[Transcribe] Received ${body.length} bytes, type=${incomingType}, filename=${filename}`);
+
+  if (body.length < 1000) {
+    console.warn('[Transcribe] Audio too small, returning empty');
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ text: '' }));
+    return;
+  }
+
   const boundary = '----HablaYaBoundary' + Date.now();
   const parts = [];
 
   parts.push(
     Buffer.from(
       `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="file"; filename="audio.webm"\r\n` +
-      `Content-Type: audio/webm\r\n\r\n`
+      `Content-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+      `Content-Type: ${incomingType}\r\n\r\n`
     )
   );
   parts.push(body);
@@ -106,13 +122,15 @@ async function handleTranscribe(req, res) {
     )
   );
 
-  // Tell Whisper to expect Spanish but allow other languages mixed in
-  // We use a prompt to bias detection toward bilingual Spanish/Dutch/English
+  // No language param + no prompt → Whisper auto-detects and transcribes
+  // accurately in the spoken language (es / nl / en / mixed).
+  // The /v1/audio/transcriptions endpoint preserves the original language;
+  // it does NOT translate (that's /v1/audio/translations).
   parts.push(
     Buffer.from(
       `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="prompt"\r\n\r\n` +
-      `This is a Spanish learner speaking. They may mix in Dutch or English words when they don't know the Spanish word. Transcribe accurately in whatever language they speak.\r\n`
+      `Content-Disposition: form-data; name="response_format"\r\n\r\n` +
+      `json\r\n`
     )
   );
 
@@ -137,13 +155,19 @@ async function handleTranscribe(req, res) {
         apiRes.on('data', (chunk) => responseChunks.push(chunk));
         apiRes.on('end', () => {
           const responseBody = Buffer.concat(responseChunks).toString();
+          console.log(`[Transcribe] Whisper status=${apiRes.statusCode}, body=${responseBody.substring(0, 200)}`);
           try {
             const data = JSON.parse(responseBody);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ text: data.text || '' }));
+            if (data.error) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: data.error.message || data.error }));
+            } else {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ text: data.text || '' }));
+            }
           } catch {
             res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Failed to parse Whisper response', raw: responseBody }));
+            res.end(JSON.stringify({ error: 'Failed to parse Whisper response', raw: responseBody.substring(0, 200) }));
           }
           resolve();
         });
@@ -151,6 +175,7 @@ async function handleTranscribe(req, res) {
     );
 
     apiReq.on('error', (err) => {
+      console.error('[Transcribe] Request error:', err.message);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
       resolve();
