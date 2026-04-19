@@ -272,6 +272,177 @@ async function handleTutor(req, res) {
   });
 }
 
+// ── Helper: simple OpenAI chat completion ───────────────────────────────────
+async function callOpenAI(systemPrompt, userPrompt, maxTokens = 200) {
+  const requestBody = JSON.stringify({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: 0.6,
+    max_tokens: maxTokens,
+  });
+
+  return new Promise((resolve, reject) => {
+    const apiReq = https.request(
+      {
+        hostname: 'api.openai.com',
+        path: '/v1/chat/completions',
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(requestBody),
+        },
+      },
+      (apiRes) => {
+        const responseChunks = [];
+        apiRes.on('data', (chunk) => responseChunks.push(chunk));
+        apiRes.on('end', () => {
+          const responseBody = Buffer.concat(responseChunks).toString();
+          try {
+            const data = JSON.parse(responseBody);
+            const text = data.choices?.[0]?.message?.content?.trim() || '';
+            resolve(text);
+          } catch (err) {
+            reject(new Error('Invalid OpenAI response'));
+          }
+        });
+      }
+    );
+    apiReq.on('error', reject);
+    apiReq.write(requestBody);
+    apiReq.end();
+  });
+}
+
+// ── Hint endpoint: suggest a Spanish phrase based on context ───────────────
+async function handleHint(req, res) {
+  if (!OPENAI_API_KEY) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'OPENAI_API_KEY not configured' }));
+    return;
+  }
+
+  let body;
+  try { body = await readJsonBody(req); } catch { body = {}; }
+  const { messages = [], scenario = null } = body;
+
+  const lastTutorMessage = [...messages].reverse().find((m) => m.role === 'tutor');
+  const recentContext = messages.slice(-4).map((m) => `${m.role}: ${m.content}`).join('\n');
+
+  const systemPrompt = `You are a Spanish tutor helping a student who is stuck. Suggest ONE short, natural Spanish reply (1-2 sentences max) the student could use right now to continue the conversation.
+
+Output format: ONLY the Spanish phrase, nothing else. No quotes, no explanations, no English.${
+    scenario ? `\n\nScenario context: ${scenario.context}` : ''
+  }`;
+
+  const userPrompt = `Recent conversation:\n${recentContext}\n\nThe student is stuck. Give them ONE short Spanish phrase they could say next.`;
+
+  try {
+    const hint = await callOpenAI(systemPrompt, userPrompt, 80);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ hint }));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
+// ── Translate endpoint: word or phrase translation ─────────────────────────
+async function handleTranslate(req, res) {
+  if (!OPENAI_API_KEY) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'OPENAI_API_KEY not configured' }));
+    return;
+  }
+
+  let body;
+  try { body = await readJsonBody(req); } catch { body = {}; }
+  const { text = '', context = '' } = body;
+
+  if (!text.trim()) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'No text provided' }));
+    return;
+  }
+
+  const systemPrompt = `You are a Spanish↔English/Dutch translator. Given a word or phrase (in any language), provide a CONCISE translation.
+
+Output format (JSON only, no markdown):
+{
+  "translation": "the translation in English",
+  "translationNl": "the translation in Dutch",
+  "partOfSpeech": "noun/verb/adjective/etc",
+  "example": "a short example sentence using it in Spanish"
+}`;
+
+  const userPrompt = `Word/phrase: "${text}"${context ? `\nContext: "${context}"` : ''}`;
+
+  try {
+    const result = await callOpenAI(systemPrompt, userPrompt, 200);
+    // Try to parse as JSON, fall back to plain text
+    let parsed;
+    try {
+      const cleaned = result.replace(/^```json\s*|\s*```$/g, '').trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      parsed = { translation: result };
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(parsed));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
+// ── Improve endpoint: native-like version of user's sentence ──────────────
+async function handleImprove(req, res) {
+  if (!OPENAI_API_KEY) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'OPENAI_API_KEY not configured' }));
+    return;
+  }
+
+  let body;
+  try { body = await readJsonBody(req); } catch { body = {}; }
+  const { text = '' } = body;
+
+  if (!text.trim()) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'No text provided' }));
+    return;
+  }
+
+  const systemPrompt = `You are a Spanish language coach. The student just said something in Spanish (possibly mixing in Dutch or English words). Show them how a native Spanish speaker would say the same thing — natural, fluent, idiomatic.
+
+Output format (JSON only, no markdown):
+{
+  "improved": "the natural native Spanish version",
+  "explanation": "1-2 sentences in English explaining what changed and why"
+}`;
+
+  const userPrompt = `Student said: "${text}"`;
+
+  try {
+    const result = await callOpenAI(systemPrompt, userPrompt, 200);
+    let parsed;
+    try {
+      const cleaned = result.replace(/^```json\s*|\s*```$/g, '').trim();
+      parsed = JSON.parse(cleaned);
+    } catch {
+      parsed = { improved: result, explanation: '' };
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(parsed));
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
+}
+
 // ── Main server ─────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -291,6 +462,21 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && req.url === '/api/tutor') {
     await handleTutor(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/hint') {
+    await handleHint(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/translate') {
+    await handleTranslate(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/improve') {
+    await handleImprove(req, res);
     return;
   }
 

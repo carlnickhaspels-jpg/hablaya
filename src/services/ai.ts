@@ -396,6 +396,84 @@ export async function generatePronunciationFeedback(
   return { score, feedback: chosen.feedback };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Real-time learning helpers (Hint, Translate, Improve)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function getSpanishHint(
+  messages: Message[],
+  scenario?: Scenario
+): Promise<string> {
+  try {
+    const res = await fetch('/api/hint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        scenario: scenario ? { context: scenario.context, title: scenario.title } : null,
+      }),
+    });
+    const data = await res.json();
+    return data.hint || '';
+  } catch (err) {
+    console.warn('[AI] Hint API error:', err);
+    return '';
+  }
+}
+
+export interface TranslationResult {
+  translation: string;
+  translationNl?: string;
+  partOfSpeech?: string;
+  example?: string;
+}
+
+export async function translateText(
+  text: string,
+  context?: string
+): Promise<TranslationResult> {
+  try {
+    const res = await fetch('/api/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, context }),
+    });
+    const data = await res.json();
+    return {
+      translation: data.translation || '',
+      translationNl: data.translationNl,
+      partOfSpeech: data.partOfSpeech,
+      example: data.example,
+    };
+  } catch (err) {
+    console.warn('[AI] Translate API error:', err);
+    return { translation: '' };
+  }
+}
+
+export interface ImprovedSentence {
+  improved: string;
+  explanation: string;
+}
+
+export async function improveSentence(text: string): Promise<ImprovedSentence> {
+  try {
+    const res = await fetch('/api/improve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    return {
+      improved: data.improved || '',
+      explanation: data.explanation || '',
+    };
+  } catch (err) {
+    console.warn('[AI] Improve API error:', err);
+    return { improved: '', explanation: '' };
+  }
+}
+
 export function generateSessionSummary(
   messages: Message[],
   corrections: Correction[],

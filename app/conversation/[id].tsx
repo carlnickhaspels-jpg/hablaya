@@ -23,10 +23,14 @@ import {
   getInitialGreeting,
   generateTutorResponse,
   generatePronunciationFeedback,
+  getSpanishHint,
 } from '@/src/services/ai';
 import { startRecording, stopRecording, playAudio } from '@/src/services/speech';
 import MicButton from '@/src/components/MicButton';
 import CorrectionCard from '@/src/components/CorrectionCard';
+import TranslatePopup from '@/src/components/TranslatePopup';
+import ImprovePopup from '@/src/components/ImprovePopup';
+import HintBar from '@/src/components/HintBar';
 
 type ConversationState = 'idle' | 'recording' | 'processing' | 'typing';
 
@@ -162,6 +166,13 @@ export default function ConversationScreen() {
   const [textInputValue, setTextInputValue] = useState('');
   const [userMessageCount, setUserMessageCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Tap-to-translate, improve, and hint UI state
+  const [translateText, setTranslateText] = useState<string | null>(null);
+  const [translateContext, setTranslateContext] = useState<string | undefined>(undefined);
+  const [improveText, setImproveText] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
+  const [hintLoading, setHintLoading] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<Date>(new Date());
@@ -320,6 +331,36 @@ export default function ConversationScreen() {
     playAudio(text);
   }, []);
 
+  const handleHintRequest = useCallback(async () => {
+    setHintLoading(true);
+    setHint(null);
+    try {
+      const result = await getSpanishHint(messages, scenario);
+      setHint(result || 'No hint available right now.');
+    } catch {
+      setHint('Could not get a hint. Please try again.');
+    } finally {
+      setHintLoading(false);
+    }
+  }, [messages, scenario]);
+
+  const handleWordTap = useCallback((word: string, fullMessage: string) => {
+    // Strip punctuation
+    const cleaned = word.replace(/[.,!?;:¡¿"'()]/g, '').trim();
+    if (!cleaned) return;
+    setTranslateContext(fullMessage);
+    setTranslateText(cleaned);
+  }, []);
+
+  const handleMessageLongPress = useCallback((fullMessage: string) => {
+    setTranslateContext(undefined);
+    setTranslateText(fullMessage);
+  }, []);
+
+  const handleImproveMessage = useCallback((text: string) => {
+    setImproveText(text);
+  }, []);
+
   const handleEndSession = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
 
@@ -334,6 +375,32 @@ export default function ConversationScreen() {
     });
   }, [router, messages, corrections, duration, id]);
 
+  const renderTappableText = (text: string, isTutor: boolean) => {
+    // Split into words but preserve spacing — wrap each word in a Text that opens the translate popup
+    const tokens = text.split(/(\s+)/);
+    return (
+      <Text
+        style={[
+          styles.messageText,
+          isTutor ? styles.tutorMessageText : styles.userMessageText,
+        ]}
+      >
+        {tokens.map((token, i) => {
+          if (/^\s+$/.test(token)) return token;
+          return (
+            <Text
+              key={i}
+              onPress={() => handleWordTap(token, text)}
+              suppressHighlighting
+            >
+              {token}
+            </Text>
+          );
+        })}
+      </Text>
+    );
+  };
+
   const renderMessage = (message: Message, index: number) => {
     const isTutor = message.role === 'tutor';
     const messageCorrections = correctionsByMessageId.current.get(message.id) ?? [];
@@ -346,33 +413,54 @@ export default function ConversationScreen() {
             isTutor ? styles.tutorBubbleWrapper : styles.userBubbleWrapper,
           ]}
         >
-          <View
+          <TouchableOpacity
+            activeOpacity={0.95}
+            onLongPress={() => handleMessageLongPress(message.content)}
             style={[
               styles.messageBubble,
               isTutor ? styles.tutorBubble : styles.userBubble,
             ]}
           >
-            <Text
-              style={[
-                styles.messageText,
-                isTutor ? styles.tutorMessageText : styles.userMessageText,
-              ]}
-            >
-              {message.content}
-            </Text>
+            {renderTappableText(message.content, isTutor)}
 
             {isTutor && (
-              <TouchableOpacity
-                style={styles.speakerButton}
-                onPress={() => handlePlayAudio(message.content)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons
-                  name="volume-medium-outline"
-                  size={18}
-                  color={colors.deepTealDark}
-                />
-              </TouchableOpacity>
+              <View style={styles.tutorActionsRow}>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => handlePlayAudio(message.content)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons
+                    name="volume-medium"
+                    size={16}
+                    color={colors.white}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => handleMessageLongPress(message.content)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons
+                    name="language"
+                    size={16}
+                    color={colors.white}
+                  />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {!isTutor && (
+              <View style={styles.userActionsRow}>
+                <TouchableOpacity
+                  style={styles.userActionButton}
+                  onPress={() => handleImproveMessage(message.content)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="sparkles" size={14} color={colors.softOrange} />
+                  <Text style={styles.userActionText}>Improve</Text>
+                </TouchableOpacity>
+              </View>
             )}
 
             {!isTutor && message.pronunciationScore !== undefined && (
@@ -419,7 +507,7 @@ export default function ConversationScreen() {
                 </View>
               </View>
             )}
-          </View>
+          </TouchableOpacity>
         </View>
 
         {messageCorrections.map((correction) => (
@@ -485,6 +573,13 @@ export default function ConversationScreen() {
             </View>
           )}
         </ScrollView>
+
+        {/* Hint Bar */}
+        <HintBar
+          hint={hint}
+          loading={hintLoading}
+          onClose={() => setHint(null)}
+        />
 
         {/* Bottom Input Area */}
         {errorMessage && (
@@ -553,21 +648,38 @@ export default function ConversationScreen() {
                 disabled={state === 'processing'}
               />
 
-              <View style={styles.micAreaPlaceholder}>
-                {state === 'recording' && (
-                  <Text style={styles.micHintText}>Tap to stop</Text>
-                )}
-                {state === 'idle' && (
-                  <Text style={styles.micHintText}>Tap to speak</Text>
-                )}
-                {state === 'processing' && (
-                  <Text style={styles.micHintText}>Thinking...</Text>
-                )}
-              </View>
+              <TouchableOpacity
+                onPress={handleHintRequest}
+                style={styles.keyboardToggle}
+                disabled={hintLoading || state !== 'idle'}
+              >
+                <Ionicons
+                  name="bulb"
+                  size={24}
+                  color={hintLoading ? colors.textSecondary : colors.softOrange}
+                />
+                <Text style={styles.keyboardToggleText}>Hint</Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>
       </KeyboardAvoidingView>
+
+      {/* Translate popup */}
+      <TranslatePopup
+        text={translateText}
+        context={translateContext}
+        onClose={() => {
+          setTranslateText(null);
+          setTranslateContext(undefined);
+        }}
+      />
+
+      {/* Improve popup */}
+      <ImprovePopup
+        text={improveText}
+        onClose={() => setImproveText(null)}
+      />
     </View>
   );
 }
@@ -683,6 +795,38 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  tutorActionsRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  actionButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: spacing.xs,
+  },
+  userActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.softOrange + '15',
+  },
+  userActionText: {
+    fontSize: typography.sizes.xs,
+    color: colors.softOrange,
+    fontWeight: typography.weights.semibold,
   },
   scoreContainer: {
     marginTop: spacing.sm,
