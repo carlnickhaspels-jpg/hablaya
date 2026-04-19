@@ -25,7 +25,15 @@ import {
   generatePronunciationFeedback,
   getSpanishHint,
 } from '@/src/services/ai';
-import { startRecording, stopRecording, playAudio } from '@/src/services/speech';
+import {
+  startRecording,
+  stopRecording,
+  playAudio,
+  startConversation,
+  stopConversation,
+  pauseConversation,
+  resumeConversation,
+} from '@/src/services/speech';
 import MicButton from '@/src/components/MicButton';
 import CorrectionCard from '@/src/components/CorrectionCard';
 import TranslatePopup from '@/src/components/TranslatePopup';
@@ -174,6 +182,12 @@ export default function ConversationScreen() {
   const [hint, setHint] = useState<string | null>(null);
   const [hintLoading, setHintLoading] = useState(false);
 
+  // Continuous conversation mode (always-listening)
+  const [conversationMode, setConversationMode] = useState(false);
+  const [vadLevel, setVadLevel] = useState(0);
+  const [vadSpeaking, setVadSpeaking] = useState(false);
+  const conversationModeRef = useRef(false);
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<Date>(new Date());
 
@@ -220,6 +234,9 @@ export default function ConversationScreen() {
     async (allMessages: Message[], allCorrections: Correction[]) => {
       setState('processing');
 
+      // Pause VAD while AI thinks/speaks so it doesn't pick up its own voice
+      if (conversationModeRef.current) pauseConversation();
+
       const { response, corrections: newCorrections } = await generateTutorResponse(
         allMessages,
         scenario,
@@ -248,60 +265,107 @@ export default function ConversationScreen() {
       setMessages((prev) => [...prev, tutorMessage]);
       setState('idle');
 
-      // Auto-play the tutor's response so the user hears it
-      playAudio(response).catch(() => {
-        // Silently ignore TTS errors
-      });
+      // Auto-play the tutor's response so the user hears it,
+      // then resume listening when done
+      try {
+        await playAudio(response);
+      } catch {
+        // ignore TTS errors
+      }
+
+      if (conversationModeRef.current) {
+        // Small delay to let mic settle, then resume listening
+        setTimeout(() => resumeConversation(), 200);
+      }
     },
     [scenario]
   );
 
-  const handleMicPress = useCallback(async () => {
-    if (state === 'recording') {
-      // Stop recording and process
-      setState('processing');
-      try {
-        const transcribedText = await stopRecording();
+  // Handle a transcribed user utterance from VAD
+  const handleUserUtterance = useCallback(
+    async (transcribedText: string) => {
+      if (!transcribedText || !transcribedText.trim()) return;
+      setErrorMessage(null);
 
-        if (transcribedText && transcribedText.trim().length > 0) {
-          setErrorMessage(null);
-          const { score } = await generatePronunciationFeedback(transcribedText);
+      const { score } = await generatePronunciationFeedback(transcribedText);
+      const userMessage: Message = {
+        id: generateId(),
+        role: 'user',
+        content: transcribedText,
+        timestamp: new Date().toISOString(),
+        pronunciationScore: score,
+      };
 
-          const userMessage: Message = {
-            id: generateId(),
-            role: 'user',
-            content: transcribedText,
-            timestamp: new Date().toISOString(),
-            pronunciationScore: score,
-          };
+      setUserMessageCount((prev) => prev + 1);
+      setMessages((prev) => {
+        const updated = [...prev, userMessage];
+        addTutorResponse(updated, corrections);
+        return updated;
+      });
+    },
+    [corrections, addTutorResponse]
+  );
 
-          setUserMessageCount((prev) => prev + 1);
-          setMessages((prev) => {
-            const updated = [...prev, userMessage];
-            addTutorResponse(updated, corrections);
-            return updated;
-          });
-        } else {
-          setErrorMessage('No speech detected. Try speaking louder.');
+  const handleStartConversationMode = useCallback(async () => {
+    try {
+      setErrorMessage(null);
+      conversationModeRef.current = true;
+      setConversationMode(true);
+
+      await startConversation({
+        onSpeechStart: () => {
+          setVadSpeaking(true);
+          setState('recording');
+        },
+        onSpeechEnd: () => {
+          setVadSpeaking(false);
+          setState('processing');
+        },
+        onTranscript: (text) => {
+          handleUserUtterance(text);
+        },
+        onLevel: (level) => {
+          setVadLevel(level);
+        },
+        onError: (err) => {
+          setErrorMessage(err.message);
+          conversationModeRef.current = false;
+          setConversationMode(false);
           setState('idle');
-        }
-      } catch (err: any) {
-        console.error('[Conversation] Recording error:', err);
-        setErrorMessage(err?.message || 'Recording failed. Please try again.');
-        setState('idle');
-      }
-    } else if (state === 'idle') {
-      // Start recording — user taps again to stop
-      try {
-        setErrorMessage(null);
-        await startRecording();
-        setState('recording');
-      } catch (err: any) {
-        console.error('[Conversation] Failed to start recording:', err);
-        setErrorMessage(err?.message || 'Could not access microphone.');
-      }
+        },
+      });
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Could not start conversation mode.');
+      conversationModeRef.current = false;
+      setConversationMode(false);
     }
-  }, [state, userMessageCount, corrections, addTutorResponse]);
+  }, [handleUserUtterance]);
+
+  const handleStopConversationMode = useCallback(async () => {
+    conversationModeRef.current = false;
+    setConversationMode(false);
+    setVadSpeaking(false);
+    setVadLevel(0);
+    await stopConversation();
+    setState('idle');
+  }, []);
+
+  const handleMicPress = useCallback(async () => {
+    if (conversationMode) {
+      await handleStopConversationMode();
+    } else {
+      await handleStartConversationMode();
+    }
+  }, [conversationMode, handleStartConversationMode, handleStopConversationMode]);
+
+  // Cleanup conversation mode on unmount
+  useEffect(() => {
+    return () => {
+      if (conversationModeRef.current) {
+        stopConversation();
+      }
+    };
+  }, []);
 
   const handleSendText = useCallback(() => {
     const text = textInputValue.trim();
@@ -629,37 +693,66 @@ export default function ConversationScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={styles.micArea}>
-              <TouchableOpacity
-                onPress={() => setShowTextInput(true)}
-                style={styles.keyboardToggle}
-              >
-                <Ionicons
-                  name="chatbubble-ellipses-outline"
-                  size={24}
-                  color={colors.textSecondary}
-                />
-                <Text style={styles.keyboardToggleText}>Type</Text>
-              </TouchableOpacity>
+            <View>
+              <View style={styles.micArea}>
+                <TouchableOpacity
+                  onPress={() => setShowTextInput(true)}
+                  style={styles.keyboardToggle}
+                  disabled={conversationMode}
+                >
+                  <Ionicons
+                    name="chatbubble-ellipses-outline"
+                    size={24}
+                    color={conversationMode ? colors.mediumGray : colors.textSecondary}
+                  />
+                  <Text style={[styles.keyboardToggleText, conversationMode && { color: colors.mediumGray }]}>
+                    Type
+                  </Text>
+                </TouchableOpacity>
 
-              <MicButton
-                isRecording={state === 'recording'}
-                onPress={handleMicPress}
-                disabled={state === 'processing'}
-              />
-
-              <TouchableOpacity
-                onPress={handleHintRequest}
-                style={styles.keyboardToggle}
-                disabled={hintLoading || state !== 'idle'}
-              >
-                <Ionicons
-                  name="bulb"
-                  size={24}
-                  color={hintLoading ? colors.textSecondary : colors.softOrange}
+                <MicButton
+                  isRecording={conversationMode || state === 'recording'}
+                  onPress={handleMicPress}
                 />
-                <Text style={styles.keyboardToggleText}>Hint</Text>
-              </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={handleHintRequest}
+                  style={styles.keyboardToggle}
+                  disabled={hintLoading || conversationMode}
+                >
+                  <Ionicons
+                    name="bulb"
+                    size={24}
+                    color={hintLoading || conversationMode ? colors.mediumGray : colors.softOrange}
+                  />
+                  <Text style={[styles.keyboardToggleText, (hintLoading || conversationMode) && { color: colors.mediumGray }]}>
+                    Hint
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Status text below mic */}
+              <View style={styles.micStatusRow}>
+                {conversationMode ? (
+                  <View style={styles.statusPill}>
+                    <View style={[
+                      styles.statusDot,
+                      vadSpeaking ? styles.statusDotSpeaking
+                        : state === 'processing' ? styles.statusDotThinking
+                        : styles.statusDotListening,
+                    ]} />
+                    <Text style={styles.statusPillText}>
+                      {vadSpeaking ? 'Hearing you...'
+                        : state === 'processing' ? 'AI is thinking...'
+                        : 'Listening — just speak'}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.micHintCenterText}>
+                    Tap to start speaking
+                  </Text>
+                )}
+              </View>
             </View>
           )}
         </View>
@@ -948,6 +1041,46 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontWeight: typography.weights.medium,
     textAlign: 'center',
+  },
+  micStatusRow: {
+    alignItems: 'center',
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.sm,
+  },
+  micHintCenterText: {
+    fontSize: typography.sizes.sm,
+    color: colors.textSecondary,
+    fontWeight: typography.weights.medium,
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    backgroundColor: colors.deepTeal + '0F',
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.deepTeal + '20',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusDotListening: {
+    backgroundColor: colors.successGreen,
+  },
+  statusDotSpeaking: {
+    backgroundColor: colors.softOrange,
+  },
+  statusDotThinking: {
+    backgroundColor: colors.deepTeal,
+  },
+  statusPillText: {
+    fontSize: typography.sizes.sm,
+    color: colors.darkText,
+    fontWeight: typography.weights.medium,
   },
 
   // ── Text Input Mode ─────────────────────────────────────
