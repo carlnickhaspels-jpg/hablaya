@@ -6,6 +6,7 @@ import {
   Pressable,
   Animated,
   Dimensions,
+  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -82,73 +83,79 @@ export default function WelcomeScreen() {
       <View style={styles.bgMiddle} />
       <View style={styles.bgBottom} />
 
-      <SafeAreaView style={styles.safeArea}>
-        <Animated.View
-          style={[
-            styles.heroSection,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }],
-            },
-          ]}
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
         >
-          <View style={styles.logoBadge}>
-            <Ionicons name="chatbubble-ellipses" size={28} color={colors.white} />
+          <Animated.View
+            style={[
+              styles.heroSection,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+          >
+            <View style={styles.logoBadge}>
+              <Ionicons name="chatbubble-ellipses" size={28} color={colors.white} />
+            </View>
+            <Text style={styles.appName}>HablaYa</Text>
+            <Text style={styles.tagline}>Stop studying. Start speaking.</Text>
+            <Text style={styles.subtitle}>
+              Learn Spanish through real conversations with your AI tutor
+            </Text>
+          </Animated.View>
+
+          <View style={styles.featuresSection}>
+            {FEATURES.map((feature, index) => (
+              <Animated.View
+                key={feature.title}
+                style={[
+                  styles.featureRow,
+                  {
+                    opacity: featureAnims[index].opacity,
+                    transform: [{ translateY: featureAnims[index].translateY }],
+                  },
+                ]}
+              >
+                <View style={styles.featureIconContainer}>
+                  <Ionicons name={feature.icon} size={22} color={colors.white} />
+                </View>
+                <View style={styles.featureText}>
+                  <Text style={styles.featureTitle}>{feature.title}</Text>
+                  <Text style={styles.featureDescription}>
+                    {feature.description}
+                  </Text>
+                </View>
+              </Animated.View>
+            ))}
           </View>
-          <Text style={styles.appName}>HablaYa</Text>
-          <Text style={styles.tagline}>Stop studying. Start speaking.</Text>
-          <Text style={styles.subtitle}>
-            Learn Spanish through real conversations with your AI tutor
-          </Text>
-        </Animated.View>
 
-        <View style={styles.featuresSection}>
-          {FEATURES.map((feature, index) => (
-            <Animated.View
-              key={feature.title}
-              style={[
-                styles.featureRow,
-                {
-                  opacity: featureAnims[index].opacity,
-                  transform: [{ translateY: featureAnims[index].translateY }],
-                },
+          <View style={styles.bottomSection}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.getStartedButton,
+                pressed && styles.getStartedButtonPressed,
               ]}
+              onPress={() => router.push('/(auth)/sign-up')}
             >
-              <View style={styles.featureIconContainer}>
-                <Ionicons name={feature.icon} size={22} color={colors.white} />
-              </View>
-              <View style={styles.featureText}>
-                <Text style={styles.featureTitle}>{feature.title}</Text>
-                <Text style={styles.featureDescription}>
-                  {feature.description}
-                </Text>
-              </View>
-            </Animated.View>
-          ))}
-        </View>
+              <Text style={styles.getStartedText}>Get Started</Text>
+              <Ionicons name="arrow-forward" size={20} color={colors.white} />
+            </Pressable>
 
-        <View style={styles.bottomSection}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.getStartedButton,
-              pressed && styles.getStartedButtonPressed,
-            ]}
-            onPress={() => router.push('/(auth)/sign-up')}
-          >
-            <Text style={styles.getStartedText}>Get Started</Text>
-            <Ionicons name="arrow-forward" size={20} color={colors.white} />
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.signInLink,
-              pressed && styles.signInLinkPressed,
-            ]}
-            onPress={() => router.push('/(auth)/sign-in')}
-          >
-            <Text style={styles.signInText}>I already have an account</Text>
-          </Pressable>
-        </View>
+            <Pressable
+              style={({ pressed }) => [
+                styles.signInLink,
+                pressed && styles.signInLinkPressed,
+              ]}
+              onPress={() => router.push('/(auth)/sign-in')}
+            >
+              <Text style={styles.signInText}>I already have an account</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     </View>
   );
@@ -189,14 +196,20 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    justifyContent: 'space-between',
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxl + spacing.xl, // extra space so button isn't hidden behind iOS Safari URL bar
   },
   heroSection: {
     alignItems: 'center',
-    paddingTop: spacing.xxl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.lg,
   },
   logoBadge: {
     width: 56,
