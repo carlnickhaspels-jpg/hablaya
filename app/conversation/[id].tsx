@@ -662,17 +662,35 @@ export default function ConversationScreen() {
 
         {/* Bottom Input Area */}
         {errorMessage && (
-          <TouchableOpacity
-            onPress={() => setErrorMessage(null)}
-            activeOpacity={0.8}
-            style={styles.errorBanner}
-          >
-            <Ionicons name="alert-circle" size={18} color={colors.coral} />
-            <Text style={styles.errorBannerText} numberOfLines={2}>
-              {errorMessage}
-            </Text>
-            <Ionicons name="close" size={16} color={colors.coral} />
-          </TouchableOpacity>
+          <View style={styles.errorBanner}>
+            <View style={styles.errorBannerHeader}>
+              <Ionicons name="alert-circle" size={18} color={colors.coral} />
+              <Text style={styles.errorBannerText}>{errorMessage}</Text>
+              <TouchableOpacity
+                onPress={() => setErrorMessage(null)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={18} color={colors.coral} />
+              </TouchableOpacity>
+            </View>
+            {errorMessage.toLowerCase().includes('permission') && (
+              <View style={styles.errorHelp}>
+                <Text style={styles.errorHelpTitle}>How to fix on iPhone:</Text>
+                <Text style={styles.errorHelpStep}>
+                  1. Tap the <Text style={{ fontWeight: '700' }}>"AA"</Text> button in Safari's address bar
+                </Text>
+                <Text style={styles.errorHelpStep}>
+                  2. Tap <Text style={{ fontWeight: '700' }}>"Website Settings"</Text>
+                </Text>
+                <Text style={styles.errorHelpStep}>
+                  3. Set <Text style={{ fontWeight: '700' }}>Microphone</Text> to <Text style={{ fontWeight: '700' }}>Allow</Text>
+                </Text>
+                <Text style={styles.errorHelpStep}>
+                  4. Reload this page and try again
+                </Text>
+              </View>
+            )}
+          </View>
         )}
 
         <View style={[styles.bottomArea, { paddingBottom: Math.max(insets.bottom, 16) }]}>
@@ -1002,9 +1020,6 @@ const styles = StyleSheet.create({
 
   // ── Error Banner ────────────────────────────────────────
   errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
     backgroundColor: colors.coral + '15',
     marginHorizontal: spacing.md,
     marginBottom: spacing.sm,
@@ -1014,11 +1029,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.coral + '40',
   },
+  errorBannerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   errorBannerText: {
     flex: 1,
     fontSize: typography.sizes.sm,
     color: colors.coral,
     fontWeight: typography.weights.medium,
+  },
+  errorHelp: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.coral + '30',
+    gap: 4,
+  },
+  errorHelpTitle: {
+    fontSize: typography.sizes.xs,
+    color: colors.coral,
+    fontWeight: typography.weights.bold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  errorHelpStep: {
+    fontSize: typography.sizes.sm,
+    color: colors.darkText,
+    lineHeight: typography.sizes.sm * 1.4,
   },
 
   // ── Bottom Area ─────────────────────────────────────────
