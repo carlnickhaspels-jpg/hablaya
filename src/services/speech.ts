@@ -215,13 +215,9 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
 
   // Stop any TTS that may still be playing before we open the mic,
   // otherwise the mic will pick up the AI's own voice.
-  try {
-    if (await Speech.isSpeakingAsync()) {
-      await Speech.stop();
-      // Small grace period for audio output to actually stop
-      await new Promise((r) => setTimeout(r, 300));
-    }
-  } catch {}
+  await stopAudio();
+  // Small grace period for audio output to actually stop
+  await new Promise((r) => setTimeout(r, 300));
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -389,8 +385,76 @@ export function isConversationActive(): boolean {
 }
 
 // ── Text-to-Speech ──────────────────────────────────────────────────────────
+// Uses OpenAI TTS via /api/tts for high-quality multilingual voice
+// (handles Spanish + Dutch in one utterance). Falls back to expo-speech
+// if the server endpoint fails.
+
+let currentAudioElement: HTMLAudioElement | null = null;
+let currentAudioUrl: string | null = null;
 
 export async function playAudio(text: string): Promise<void> {
+  if (!text || !text.trim()) return;
+
+  // Stop any in-flight audio first
+  await stopAudio();
+
+  if (Platform.OS === 'web' && typeof Audio !== 'undefined') {
+    try {
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: 'nova' }),
+      });
+
+      if (!response.ok) {
+        console.warn('[TTS] Server returned', response.status, '— falling back to browser TTS');
+        return playWithBrowserTTS(text);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      currentAudioUrl = url;
+
+      const audio = new Audio(url);
+      currentAudioElement = audio;
+
+      return new Promise<void>((resolve) => {
+        audio.onended = () => {
+          if (currentAudioUrl === url) {
+            URL.revokeObjectURL(url);
+            currentAudioUrl = null;
+            currentAudioElement = null;
+          }
+          resolve();
+        };
+        audio.onerror = () => {
+          console.warn('[TTS] Audio playback error, falling back');
+          if (currentAudioUrl === url) {
+            URL.revokeObjectURL(url);
+            currentAudioUrl = null;
+            currentAudioElement = null;
+          }
+          // Fallback to browser TTS
+          playWithBrowserTTS(text).then(resolve).catch(() => resolve());
+        };
+        audio.play().catch((err) => {
+          console.warn('[TTS] play() failed:', err);
+          // iOS Safari may reject play() if not triggered by user gesture
+          // Fallback to browser TTS
+          playWithBrowserTTS(text).then(resolve).catch(() => resolve());
+        });
+      });
+    } catch (err) {
+      console.warn('[TTS] Server TTS failed, falling back:', err);
+      return playWithBrowserTTS(text);
+    }
+  }
+
+  // Native fallback
+  return playWithBrowserTTS(text);
+}
+
+async function playWithBrowserTTS(text: string): Promise<void> {
   const isSpeaking = await Speech.isSpeakingAsync();
   if (isSpeaking) await Speech.stop();
 
@@ -406,6 +470,20 @@ export async function playAudio(text: string): Promise<void> {
 }
 
 export async function stopAudio(): Promise<void> {
-  const isSpeaking = await Speech.isSpeakingAsync();
-  if (isSpeaking) await Speech.stop();
+  if (currentAudioElement) {
+    try {
+      currentAudioElement.pause();
+      currentAudioElement.currentTime = 0;
+    } catch {}
+    if (currentAudioUrl) {
+      URL.revokeObjectURL(currentAudioUrl);
+    }
+    currentAudioElement = null;
+    currentAudioUrl = null;
+  }
+
+  try {
+    const isSpeaking = await Speech.isSpeakingAsync();
+    if (isSpeaking) await Speech.stop();
+  } catch {}
 }

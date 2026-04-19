@@ -566,6 +566,89 @@ Output format (JSON only, no markdown):
   }
 }
 
+// ── TTS endpoint: multilingual text-to-speech via OpenAI ───────────────────
+async function handleTTS(req, res) {
+  if (!OPENAI_API_KEY) {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'OPENAI_API_KEY not configured' }));
+    return;
+  }
+
+  let body;
+  try { body = await readJsonBody(req); } catch { body = {}; }
+  const { text = '', voice = 'nova' } = body;
+
+  if (!text || !text.trim()) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'No text provided' }));
+    return;
+  }
+
+  // Strip emoji, markdown, and special formatting that the TTS would read literally
+  const cleaned = text
+    .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}]/gu, '') // emoji
+    .replace(/👇|→|↑|↓/g, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+    .trim();
+
+  const requestBody = JSON.stringify({
+    model: 'gpt-4o-mini-tts',
+    voice,
+    input: cleaned,
+    response_format: 'mp3',
+    instructions: 'Speak naturally and warmly. The text contains a mix of Spanish and Dutch — pronounce each word in its correct native language. Spanish words should sound natively Spanish (Latin American accent preferred), Dutch words natively Dutch.',
+  });
+
+  return new Promise((resolve) => {
+    const apiReq = https.request(
+      {
+        hostname: 'api.openai.com',
+        path: '/v1/audio/speech',
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(requestBody),
+        },
+      },
+      (apiRes) => {
+        if (apiRes.statusCode !== 200) {
+          const errChunks = [];
+          apiRes.on('data', (chunk) => errChunks.push(chunk));
+          apiRes.on('end', () => {
+            const errBody = Buffer.concat(errChunks).toString();
+            console.error('[TTS] OpenAI error:', apiRes.statusCode, errBody.substring(0, 200));
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'TTS API error', detail: errBody.substring(0, 200) }));
+            resolve();
+          });
+          return;
+        }
+
+        // Stream the mp3 back to the client
+        res.writeHead(200, {
+          'Content-Type': 'audio/mpeg',
+          'Cache-Control': 'no-store',
+        });
+        apiRes.pipe(res);
+        apiRes.on('end', () => resolve());
+      }
+    );
+
+    apiReq.on('error', (err) => {
+      console.error('[TTS] Request error:', err.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+      resolve();
+    });
+
+    apiReq.write(requestBody);
+    apiReq.end();
+  });
+}
+
 // ── Main server ─────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -600,6 +683,11 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && req.url === '/api/improve') {
     await handleImprove(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/tts') {
+    await handleTTS(req, res);
     return;
   }
 
