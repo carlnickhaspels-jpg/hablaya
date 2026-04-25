@@ -7,6 +7,32 @@ const PORT = process.env.PORT || 3000;
 const DIST_DIR = path.join(__dirname, 'dist');
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 
+// PWA / iOS home-screen meta tags injected into every index.html response
+const PWA_META_TAGS = `
+  <title>HablaYa — AI Spanish Tutor</title>
+  <meta name="description" content="Stop studying. Start speaking. Learn Spanish through real conversations with your personal AI tutor." />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="HablaYa" />
+  <meta name="application-name" content="HablaYa" />
+  <meta name="theme-color" content="#0D5C54" />
+  <link rel="apple-touch-icon" href="/icon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+`;
+
+function injectPwaTags(html) {
+  // Replace the default title and inject PWA tags inside <head>
+  return html
+    .replace(/<title>.*?<\/title>/, '')
+    .replace('</head>', `${PWA_META_TAGS}</head>`)
+    .replace(
+      /<meta name="viewport"[^>]*\/>/,
+      '<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover, user-scalable=no" />'
+    );
+}
+
 const MIME_TYPES = {
   '.html': 'text/html',
   '.js': 'application/javascript',
@@ -691,6 +717,42 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // PWA manifest (served dynamically so we don't need to ship a separate file)
+  if (req.method === 'GET' && req.url.split('?')[0] === '/manifest.webmanifest') {
+    const manifest = {
+      name: 'HablaYa — AI Spanish Tutor',
+      short_name: 'HablaYa',
+      description: 'Learn Spanish through real conversations with your AI tutor',
+      start_url: '/',
+      display: 'standalone',
+      orientation: 'portrait',
+      background_color: '#0D5C54',
+      theme_color: '#0D5C54',
+      icons: [
+        { src: '/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+      ],
+    };
+    res.writeHead(200, {
+      'Content-Type': 'application/manifest+json',
+      'Cache-Control': 'public, max-age=3600',
+    });
+    res.end(JSON.stringify(manifest));
+    return;
+  }
+
+  // Serve the app icon from /icon.png even though it lives in /assets/
+  if (req.method === 'GET' && req.url.split('?')[0] === '/icon.png') {
+    const iconPath = path.join(__dirname, 'assets', 'icon.png');
+    if (fs.existsSync(iconPath)) {
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=86400',
+      });
+      res.end(fs.readFileSync(iconPath));
+      return;
+    }
+  }
+
   // Static file serving
   const urlPath = req.url.split('?')[0];
   let filePath = path.join(DIST_DIR, urlPath === '/' ? 'index.html' : urlPath);
@@ -698,29 +760,31 @@ const server = http.createServer(async (req, res) => {
   if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
     const ext = path.extname(filePath);
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-    const content = fs.readFileSync(filePath);
 
     const cacheControl = ext === '.html'
       ? 'no-cache'
       : 'public, max-age=31536000, immutable';
 
-    res.writeHead(200, {
-      'Content-Type': contentType,
-      'Cache-Control': cacheControl,
-    });
-    res.end(content);
+    if (ext === '.html') {
+      const html = fs.readFileSync(filePath, 'utf8');
+      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': cacheControl });
+      res.end(injectPwaTags(html));
+    } else {
+      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': cacheControl });
+      res.end(fs.readFileSync(filePath));
+    }
     return;
   }
 
   // SPA fallback
   const indexPath = path.join(DIST_DIR, 'index.html');
   if (fs.existsSync(indexPath)) {
-    const content = fs.readFileSync(indexPath);
+    const html = fs.readFileSync(indexPath, 'utf8');
     res.writeHead(200, {
       'Content-Type': 'text/html',
       'Cache-Control': 'no-cache',
     });
-    res.end(content);
+    res.end(injectPwaTags(html));
     return;
   }
 
