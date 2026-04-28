@@ -280,10 +280,11 @@ export default function ConversationScreen() {
       }
 
       if (conversationModeRef.current) {
-        // Longer delay after TTS so any audio echo settles before resuming.
-        // The VAD service also enforces a higher threshold for ~1.5s after
-        // resume to ignore residual TTS echo.
-        setTimeout(() => resumeConversation(), 800);
+        // Brief delay after TTS so audio output fully stops, then resume.
+        // The VAD service also has a short cool-down period to filter
+        // residual echo, but with much lower aggressiveness so normal
+        // voice still triggers.
+        setTimeout(() => resumeConversation(), 400);
       }
     },
     [scenario]

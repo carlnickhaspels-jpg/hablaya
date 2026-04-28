@@ -251,13 +251,19 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
     let resumeAt = 0; // timestamp when listening was last resumed (for post-TTS cool-down)
     const startedAt = performance.now();
     const WARMUP_MS = 500; // ignore VAD events for first 500ms to skip click/touch noise
-    const POST_RESUME_COOLDOWN_MS = 1500; // higher threshold for 1.5s after resume to ignore TTS echo
-    const POST_RESUME_THRESHOLD_MULTIPLIER = 2.5; // x2.5 threshold during cool-down
+    const POST_RESUME_COOLDOWN_MS = 600; // brief grace period for any residual TTS echo
+    const POST_RESUME_THRESHOLD_MULTIPLIER = 1.4; // small threshold bump during cool-down
 
     const buffer = new Uint8Array(analyser.frequencyBinCount);
 
     const tick = () => {
       if (!conversationActive || !analyser) return;
+
+      // iOS Safari sometimes auto-suspends AudioContext after media playback;
+      // resume it eagerly so the mic analyser keeps producing data.
+      if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume().catch(() => {});
+      }
 
       analyser.getByteTimeDomainData(buffer);
       // Compute RMS
