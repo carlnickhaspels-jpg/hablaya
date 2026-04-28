@@ -46,6 +46,16 @@ export default function HomeScreen() {
   const router = useRouter();
   const [refreshing, setRefreshing] = React.useState(false);
 
+  // Today's Challenge: pick a deterministic scenario based on day-of-year,
+  // so it changes daily but is the same all day for the same user.
+  const dailyChallenge = useMemo(() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 0);
+    const diff = now.getTime() - start.getTime();
+    const dayOfYear = Math.floor(diff / (1000 * 60 * 60 * 24));
+    return scenarios[dayOfYear % scenarios.length];
+  }, []);
+
   const suggestedScenario = useMemo(() => {
     const index = Math.floor(Math.random() * scenarios.length);
     return scenarios[index];
@@ -187,16 +197,18 @@ export default function HomeScreen() {
             <TouchableOpacity
               style={[styles.quickStartCard, styles.challengeCard]}
               activeOpacity={0.85}
-              onPress={() => router.push('/conversation/daily-challenge')}
+              onPress={() => router.push(`/conversation/${dailyChallenge.id}`)}
             >
               <View style={[styles.quickStartIconBg, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
                 <Ionicons name="flash" size={26} color={colors.white} />
               </View>
               <Text style={styles.quickStartTitle}>Today's Challenge</Text>
-              <Text style={styles.quickStartSubtitle}>Timed mode</Text>
+              <Text style={styles.quickStartSubtitle} numberOfLines={1}>
+                {dailyChallenge.titleEs}
+              </Text>
               <View style={styles.quickStartTimeRow}>
                 <Ionicons name="time-outline" size={12} color="rgba(255,255,255,0.7)" />
-                <Text style={styles.quickStartTime}>5 min</Text>
+                <Text style={styles.quickStartTime}>{dailyChallenge.estimatedMinutes} min</Text>
               </View>
             </TouchableOpacity>
           </View>
