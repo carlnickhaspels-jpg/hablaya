@@ -14,6 +14,8 @@ interface MicButtonProps {
   onPress: () => void;
   disabled?: boolean;
   size?: number;
+  /** Soft pulse to invite user to reply after AI finished speaking */
+  awaitingReply?: boolean;
 }
 
 export default function MicButton({
@@ -21,12 +23,14 @@ export default function MicButton({
   onPress,
   disabled = false,
   size = 72,
+  awaitingReply = false,
 }: MicButtonProps) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const opacityAnim = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {
     if (isRecording) {
+      // Strong pulse while recording
       const pulse = Animated.loop(
         Animated.parallel([
           Animated.sequence([
@@ -57,11 +61,43 @@ export default function MicButton({
       );
       pulse.start();
       return () => pulse.stop();
+    } else if (awaitingReply) {
+      // Soft, gentle pulse to invite reply
+      const pulse = Animated.loop(
+        Animated.parallel([
+          Animated.sequence([
+            Animated.timing(pulseAnim, {
+              toValue: 1.25,
+              duration: 1400,
+              useNativeDriver: true,
+            }),
+            Animated.timing(pulseAnim, {
+              toValue: 1,
+              duration: 1400,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.sequence([
+            Animated.timing(opacityAnim, {
+              toValue: 0,
+              duration: 1400,
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacityAnim, {
+              toValue: 0.3,
+              duration: 1400,
+              useNativeDriver: true,
+            }),
+          ]),
+        ])
+      );
+      pulse.start();
+      return () => pulse.stop();
     } else {
       pulseAnim.setValue(1);
       opacityAnim.setValue(0.4);
     }
-  }, [isRecording, pulseAnim, opacityAnim]);
+  }, [isRecording, awaitingReply, pulseAnim, opacityAnim]);
 
   const handlePress = async () => {
     if (disabled) return;
@@ -88,6 +124,9 @@ export default function MicButton({
     borderRadius: ringSize / 2,
   };
 
+  const showPulse = isRecording || awaitingReply;
+  const pulseColor = isRecording ? colors.coral : colors.softOrange;
+
   return (
     <TouchableOpacity
       onPress={handlePress}
@@ -95,12 +134,13 @@ export default function MicButton({
       activeOpacity={0.8}
       style={styles.container}
     >
-      {isRecording && (
+      {showPulse && (
         <Animated.View
           style={[
             styles.pulseRing,
             ringStyle,
             {
+              backgroundColor: pulseColor,
               transform: [{ scale: pulseAnim }],
               opacity: opacityAnim,
             },
@@ -112,6 +152,7 @@ export default function MicButton({
           styles.button,
           buttonStyle,
           isRecording && styles.buttonRecording,
+          awaitingReply && !isRecording && styles.buttonAwaiting,
           disabled && styles.buttonDisabled,
         ]}
       >
@@ -148,6 +189,9 @@ const styles = StyleSheet.create({
   },
   buttonRecording: {
     backgroundColor: colors.coral,
+  },
+  buttonAwaiting: {
+    backgroundColor: colors.softOrange,
   },
   buttonDisabled: {
     backgroundColor: colors.mediumGray,

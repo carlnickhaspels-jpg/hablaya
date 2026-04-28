@@ -29,10 +29,6 @@ import {
   startRecording,
   stopRecording,
   playAudio,
-  startConversation,
-  stopConversation,
-  pauseConversation,
-  resumeConversation,
   TranscriptionResult,
 } from '@/src/services/speech';
 import MicButton from '@/src/components/MicButton';
@@ -183,11 +179,8 @@ export default function ConversationScreen() {
   const [hint, setHint] = useState<string | null>(null);
   const [hintLoading, setHintLoading] = useState(false);
 
-  // Continuous conversation mode (always-listening)
-  const [conversationMode, setConversationMode] = useState(false);
-  const [vadLevel, setVadLevel] = useState(0);
-  const [vadSpeaking, setVadSpeaking] = useState(false);
-  const conversationModeRef = useRef(false);
+  // After AI speaks, briefly pulse the mic to invite the user's reply
+  const [awaitingReply, setAwaitingReply] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<Date>(new Date());
@@ -239,9 +232,6 @@ export default function ConversationScreen() {
     ) => {
       setState('processing');
 
-      // Pause VAD while AI thinks/speaks so it doesn't pick up its own voice
-      if (conversationModeRef.current) pauseConversation();
-
       const { response, corrections: newCorrections } = await generateTutorResponse(
         allMessages,
         scenario,
@@ -279,13 +269,9 @@ export default function ConversationScreen() {
         // ignore TTS errors
       }
 
-      if (conversationModeRef.current) {
-        // Brief delay after TTS so audio output fully stops, then resume.
-        // The VAD service also has a short cool-down period to filter
-        // residual echo, but with much lower aggressiveness so normal
-        // voice still triggers.
-        setTimeout(() => resumeConversation(), 400);
-      }
+      // After AI finishes speaking, briefly pulse the mic to invite reply.
+      // (We use a separate state for this hint, set below.)
+      setAwaitingReply(true);
     },
     [scenario]
   );
@@ -324,81 +310,39 @@ export default function ConversationScreen() {
     [corrections, addTutorResponse]
   );
 
-  const handleStartConversationMode = useCallback(async () => {
-    try {
-      setErrorMessage(null);
-      conversationModeRef.current = true;
-      setConversationMode(true);
-
-      // Debounce speech-start UI: don't show "Hearing you..." for sub-300ms
-      // false positives that would otherwise flicker.
-      let speakingDebounce: ReturnType<typeof setTimeout> | null = null;
-
-      await startConversation({
-        onSpeechStart: () => {
-          if (speakingDebounce) clearTimeout(speakingDebounce);
-          speakingDebounce = setTimeout(() => {
-            setVadSpeaking(true);
-            setState('recording');
-            speakingDebounce = null;
-          }, 250);
-        },
-        onSpeechEnd: () => {
-          if (speakingDebounce) {
-            clearTimeout(speakingDebounce);
-            speakingDebounce = null;
-            // Speech was too brief — don't transition to processing,
-            // stay in 'idle' / 'Listening' state
-            return;
-          }
-          setVadSpeaking(false);
-          setState('processing');
-        },
-        onTranscript: (text) => {
-          handleUserUtterance(text);
-        },
-        onLevel: (level) => {
-          setVadLevel(level);
-        },
-        onError: (err) => {
-          setErrorMessage(err.message);
-          conversationModeRef.current = false;
-          setConversationMode(false);
-          setState('idle');
-        },
-      });
-    } catch (err: any) {
-      setErrorMessage(err?.message || 'Could not start conversation mode.');
-      conversationModeRef.current = false;
-      setConversationMode(false);
-    }
-  }, [handleUserUtterance]);
-
-  const handleStopConversationMode = useCallback(async () => {
-    conversationModeRef.current = false;
-    setConversationMode(false);
-    setVadSpeaking(false);
-    setVadLevel(0);
-    await stopConversation();
-    setState('idle');
-  }, []);
-
+  // Simple, reliable tap-to-toggle:
+  // First tap → starts recording
+  // Second tap → stops, transcribes, sends to AI
   const handleMicPress = useCallback(async () => {
-    if (conversationMode) {
-      await handleStopConversationMode();
-    } else {
-      await handleStartConversationMode();
-    }
-  }, [conversationMode, handleStartConversationMode, handleStopConversationMode]);
-
-  // Cleanup conversation mode on unmount
-  useEffect(() => {
-    return () => {
-      if (conversationModeRef.current) {
-        stopConversation();
+    if (state === 'recording') {
+      // STOP recording and transcribe
+      setState('processing');
+      try {
+        const result = await stopRecording();
+        if (result && result.text && result.text.trim()) {
+          handleUserUtterance(result);
+        } else {
+          setErrorMessage('No speech detected. Try speaking louder.');
+          setState('idle');
+        }
+      } catch (err: any) {
+        console.error('[Conversation] Recording error:', err);
+        setErrorMessage(err?.message || 'Recording failed. Please try again.');
+        setState('idle');
       }
-    };
-  }, []);
+    } else if (state === 'idle') {
+      // START recording
+      try {
+        setErrorMessage(null);
+        setAwaitingReply(false);
+        await startRecording();
+        setState('recording');
+      } catch (err: any) {
+        console.error('[Conversation] Failed to start recording:', err);
+        setErrorMessage(err?.message || 'Could not access microphone.');
+      }
+    }
+  }, [state, handleUserUtterance]);
 
   const handleSendText = useCallback(() => {
     const text = textInputValue.trim();
@@ -749,34 +693,36 @@ export default function ConversationScreen() {
                 <TouchableOpacity
                   onPress={() => setShowTextInput(true)}
                   style={styles.keyboardToggle}
-                  disabled={conversationMode}
+                  disabled={state !== 'idle'}
                 >
                   <Ionicons
                     name="chatbubble-ellipses-outline"
                     size={24}
-                    color={conversationMode ? colors.mediumGray : colors.textSecondary}
+                    color={state !== 'idle' ? colors.mediumGray : colors.textSecondary}
                   />
-                  <Text style={[styles.keyboardToggleText, conversationMode && { color: colors.mediumGray }]}>
+                  <Text style={[styles.keyboardToggleText, state !== 'idle' && { color: colors.mediumGray }]}>
                     Type
                   </Text>
                 </TouchableOpacity>
 
                 <MicButton
-                  isRecording={conversationMode || state === 'recording'}
+                  isRecording={state === 'recording'}
                   onPress={handleMicPress}
+                  awaitingReply={awaitingReply && state === 'idle'}
+                  disabled={state === 'processing'}
                 />
 
                 <TouchableOpacity
                   onPress={handleHintRequest}
                   style={styles.keyboardToggle}
-                  disabled={hintLoading || conversationMode}
+                  disabled={hintLoading || state !== 'idle'}
                 >
                   <Ionicons
                     name="bulb"
                     size={24}
-                    color={hintLoading || conversationMode ? colors.mediumGray : colors.softOrange}
+                    color={hintLoading || state !== 'idle' ? colors.mediumGray : colors.softOrange}
                   />
-                  <Text style={[styles.keyboardToggleText, (hintLoading || conversationMode) && { color: colors.mediumGray }]}>
+                  <Text style={[styles.keyboardToggleText, (hintLoading || state !== 'idle') && { color: colors.mediumGray }]}>
                     Hint
                   </Text>
                 </TouchableOpacity>
@@ -784,23 +730,24 @@ export default function ConversationScreen() {
 
               {/* Status text below mic */}
               <View style={styles.micStatusRow}>
-                {conversationMode ? (
+                {state === 'recording' ? (
                   <View style={styles.statusPill}>
-                    <View style={[
-                      styles.statusDot,
-                      vadSpeaking ? styles.statusDotSpeaking
-                        : state === 'processing' ? styles.statusDotThinking
-                        : styles.statusDotListening,
-                    ]} />
-                    <Text style={styles.statusPillText}>
-                      {vadSpeaking ? 'Hearing you...'
-                        : state === 'processing' ? 'AI is thinking...'
-                        : 'Listening — just speak'}
-                    </Text>
+                    <View style={[styles.statusDot, styles.statusDotSpeaking]} />
+                    <Text style={styles.statusPillText}>Recording — tap to send</Text>
+                  </View>
+                ) : state === 'processing' ? (
+                  <View style={styles.statusPill}>
+                    <View style={[styles.statusDot, styles.statusDotThinking]} />
+                    <Text style={styles.statusPillText}>AI is thinking...</Text>
+                  </View>
+                ) : awaitingReply ? (
+                  <View style={[styles.statusPill, { backgroundColor: colors.softOrange + '15', borderColor: colors.softOrange + '30' }]}>
+                    <View style={[styles.statusDot, { backgroundColor: colors.softOrange }]} />
+                    <Text style={[styles.statusPillText, { color: colors.softOrange }]}>Your turn — tap to reply</Text>
                   </View>
                 ) : (
                   <Text style={styles.micHintCenterText}>
-                    Tap to start speaking
+                    Tap mic to speak
                   </Text>
                 )}
               </View>
