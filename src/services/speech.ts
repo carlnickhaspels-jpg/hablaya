@@ -248,8 +248,11 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
     let lastVoiceAt = 0;
     let pendingTranscription = false;
     let pauseListening = false; // pause during transcription/playback
+    let resumeAt = 0; // timestamp when listening was last resumed (for post-TTS cool-down)
     const startedAt = performance.now();
     const WARMUP_MS = 500; // ignore VAD events for first 500ms to skip click/touch noise
+    const POST_RESUME_COOLDOWN_MS = 1500; // higher threshold for 1.5s after resume to ignore TTS echo
+    const POST_RESUME_THRESHOLD_MULTIPLIER = 2.5; // x2.5 threshold during cool-down
 
     const buffer = new Uint8Array(analyser.frequencyBinCount);
 
@@ -268,7 +271,15 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
       callbacks.onLevel?.(Math.min(1, rms * 4));
 
       const now = performance.now();
-      const isVoice = rms > DEFAULT_VAD.threshold;
+
+      // Use a higher threshold for a brief window after resume,
+      // so residual TTS echo doesn't get picked up as user speech.
+      const inPostResumeCooldown = resumeAt > 0 && now - resumeAt < POST_RESUME_COOLDOWN_MS;
+      const effectiveThreshold = inPostResumeCooldown
+        ? DEFAULT_VAD.threshold * POST_RESUME_THRESHOLD_MULTIPLIER
+        : DEFAULT_VAD.threshold;
+
+      const isVoice = rms > effectiveThreshold;
 
       // Warm-up: ignore everything during the first WARMUP_MS so the click
       // sound from tapping the mic button doesn't trigger a recording.
@@ -330,10 +341,25 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
     };
 
     // Helper to pause/resume from outside
-    (startConversation as any)._pause = () => { pauseListening = true; };
+    (startConversation as any)._pause = () => {
+      pauseListening = true;
+      // Hard-reset any in-flight VAD state so we don't carry it through pause
+      speaking = false;
+      pendingTranscription = false;
+      // Abort any half-recorded chunk
+      if (mediaRecorder && isRecording) {
+        try { mediaRecorder.stop(); } catch {}
+        isRecording = false;
+      }
+      audioChunks = [];
+    };
     (startConversation as any)._resume = () => {
       pauseListening = false;
+      // Reset speaking state and start the post-resume cool-down
+      speaking = false;
+      pendingTranscription = false;
       lastVoiceAt = performance.now();
+      resumeAt = performance.now();
     };
 
     tick();

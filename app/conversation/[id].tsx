@@ -280,8 +280,10 @@ export default function ConversationScreen() {
       }
 
       if (conversationModeRef.current) {
-        // Small delay to let mic settle, then resume listening
-        setTimeout(() => resumeConversation(), 200);
+        // Longer delay after TTS so any audio echo settles before resuming.
+        // The VAD service also enforces a higher threshold for ~1.5s after
+        // resume to ignore residual TTS echo.
+        setTimeout(() => resumeConversation(), 800);
       }
     },
     [scenario]
@@ -327,12 +329,27 @@ export default function ConversationScreen() {
       conversationModeRef.current = true;
       setConversationMode(true);
 
+      // Debounce speech-start UI: don't show "Hearing you..." for sub-300ms
+      // false positives that would otherwise flicker.
+      let speakingDebounce: ReturnType<typeof setTimeout> | null = null;
+
       await startConversation({
         onSpeechStart: () => {
-          setVadSpeaking(true);
-          setState('recording');
+          if (speakingDebounce) clearTimeout(speakingDebounce);
+          speakingDebounce = setTimeout(() => {
+            setVadSpeaking(true);
+            setState('recording');
+            speakingDebounce = null;
+          }, 250);
         },
         onSpeechEnd: () => {
+          if (speakingDebounce) {
+            clearTimeout(speakingDebounce);
+            speakingDebounce = null;
+            // Speech was too brief — don't transition to processing,
+            // stay in 'idle' / 'Listening' state
+            return;
+          }
           setVadSpeaking(false);
           setState('processing');
         },
