@@ -70,7 +70,7 @@ export default function ConversationsScreen() {
           <Ionicons name="chatbubble-ellipses" size={28} color={colors.white} />
         </View>
         <View style={styles.freeTalkInfo}>
-          <Text style={styles.freeTalkTitle}>Conversaci\u00f3n Libre</Text>
+          <Text style={styles.freeTalkTitle}>{'Conversaci\u00f3n Libre'}</Text>
           <Text style={styles.freeTalkSubtitle}>Free Talk</Text>
           <Text style={styles.freeTalkDescription}>
             Practice speaking about anything you want with your AI tutor

@@ -113,7 +113,7 @@ export default function HomeScreen() {
         {/* Greeting Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>\u00a1Hola, {userName}!</Text>
+            <Text style={styles.greeting}>{`\u00a1Hola, ${userName}!`}</Text>
             <Text style={styles.date}>{dateString}</Text>
           </View>
           <TouchableOpacity
@@ -230,7 +230,7 @@ export default function HomeScreen() {
                 <View style={styles.recentInfo}>
                   <Text style={styles.recentTitle}>{session.scenarioTitleEs}</Text>
                   <Text style={styles.recentSubtitle}>
-                    {session.date} \u00b7 {session.duration} min
+                    {`${session.date} \u00b7 ${session.duration} min`}
                   </Text>
                 </View>
               </View>
