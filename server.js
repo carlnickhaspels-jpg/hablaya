@@ -602,7 +602,11 @@ async function handleTTS(req, res) {
   }
 
   let body;
-  try { body = await readJsonBody(req); } catch { body = {}; }
+  if (req._jsonBody) {
+    body = req._jsonBody;
+  } else {
+    try { body = await readJsonBody(req); } catch { body = {}; }
+  }
   const { text = '', voice = 'nova' } = body;
 
   if (!text || !text.trim()) {
@@ -620,12 +624,15 @@ async function handleTTS(req, res) {
     .replace(/`(.+?)`/g, '$1')
     .trim();
 
+  // tts-1 is ~5-10x faster than gpt-4o-mini-tts and quality is still
+  // very natural for conversational use. The slower hi-fi model isn't
+  // worth a 3-5 second delay on every reply.
   const requestBody = JSON.stringify({
-    model: 'gpt-4o-mini-tts',
+    model: 'tts-1',
     voice,
     input: cleaned,
     response_format: 'mp3',
-    instructions: 'Speak naturally and warmly. The text contains a mix of Spanish and Dutch — pronounce each word in its correct native language. Spanish words should sound natively Spanish (Latin American accent preferred), Dutch words natively Dutch.',
+    speed: 1.0,
   });
 
   return new Promise((resolve) => {
@@ -714,6 +721,19 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'POST' && req.url === '/api/tts') {
+    await handleTTS(req, res);
+    return;
+  }
+
+  // GET version for direct streaming via <audio src=…> — much lower
+  // perceived latency because the browser starts playing the moment
+  // the first audio bytes arrive instead of waiting for the full Blob.
+  if (req.method === 'GET' && req.url.startsWith('/api/tts?')) {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const text = url.searchParams.get('text') || '';
+    const voice = url.searchParams.get('voice') || 'nova';
+    // Reuse the POST handler by faking a JSON body
+    req._jsonBody = { text, voice };
     await handleTTS(req, res);
     return;
   }

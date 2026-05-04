@@ -432,47 +432,30 @@ export async function playAudio(text: string): Promise<void> {
 
   if (Platform.OS === 'web' && typeof Audio !== 'undefined') {
     try {
-      const response = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice: 'nova' }),
-      });
-
-      if (!response.ok) {
-        console.warn('[TTS] Server returned', response.status, '— falling back to browser TTS');
-        return playWithBrowserTTS(text);
-      }
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      // Stream directly via <audio src=…> for lowest latency.
+      // The browser starts playing as soon as the first bytes arrive
+      // instead of waiting for the entire file to download.
+      const url = `/api/tts?text=${encodeURIComponent(text)}&voice=nova`;
       currentAudioUrl = url;
 
       const audio = new Audio(url);
+      audio.preload = 'auto';
       currentAudioElement = audio;
 
       return new Promise<void>((resolve) => {
         audio.onended = () => {
-          if (currentAudioUrl === url) {
-            URL.revokeObjectURL(url);
-            currentAudioUrl = null;
-            currentAudioElement = null;
-          }
+          currentAudioUrl = null;
+          currentAudioElement = null;
           resolve();
         };
         audio.onerror = () => {
           console.warn('[TTS] Audio playback error, falling back');
-          if (currentAudioUrl === url) {
-            URL.revokeObjectURL(url);
-            currentAudioUrl = null;
-            currentAudioElement = null;
-          }
-          // Fallback to browser TTS
+          currentAudioUrl = null;
+          currentAudioElement = null;
           playWithBrowserTTS(text).then(resolve).catch(() => resolve());
         };
         audio.play().catch((err) => {
           console.warn('[TTS] play() failed:', err);
-          // iOS Safari may reject play() if not triggered by user gesture
-          // Fallback to browser TTS
           playWithBrowserTTS(text).then(resolve).catch(() => resolve());
         });
       });
