@@ -2,10 +2,14 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const db = require('./db');
+const auth = require('./auth');
 
 const PORT = process.env.PORT || 3000;
 const DIST_DIR = path.join(__dirname, 'dist');
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+const POSTHOG_API_KEY = process.env.POSTHOG_API_KEY || '';
+const POSTHOG_HOST = process.env.POSTHOG_HOST || 'https://eu.i.posthog.com';
 const serverStartedAt = new Date().toISOString();
 
 // PWA / iOS home-screen meta tags injected into every index.html response
@@ -683,6 +687,63 @@ async function handleTTS(req, res) {
   });
 }
 
+// ── Feedback endpoint ──────────────────────────────────────────────────────
+async function handleFeedback(req, res) {
+  if (!db.isConfigured()) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Database not configured' }));
+    return;
+  }
+
+  let body;
+  try { body = await auth.readJsonBody(req); }
+  catch { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Invalid JSON' })); return; }
+
+  const { category, message, clientVersion } = body;
+  if (!message || typeof message !== 'string' || !message.trim()) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Please write a message.' }));
+    return;
+  }
+
+  const validCategories = ['bug', 'idea', 'praise', 'other'];
+  const cat = validCategories.includes(category) ? category : 'other';
+
+  // Identify user if logged in (optional)
+  const token = auth.getTokenFromRequest(req);
+  const user = token ? await auth.verifyToken(token) : null;
+  const userAgent = (req.headers['user-agent'] || '').slice(0, 500);
+
+  await db.query(
+    `INSERT INTO feedback (user_id, user_email, category, message, client_version, user_agent)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      user ? user.id : null,
+      user ? user.email : null,
+      cat,
+      message.trim().slice(0, 5000),
+      (clientVersion || '').toString().slice(0, 50),
+      userAgent,
+    ]
+  );
+
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ ok: true }));
+}
+
+// ── Public config endpoint (returns env-controlled flags to client) ─────────
+function handleConfig(req, res) {
+  res.writeHead(200, {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'public, max-age=60',
+  });
+  res.end(JSON.stringify({
+    posthogKey: POSTHOG_API_KEY || null,
+    posthogHost: POSTHOG_HOST,
+    requiresInviteCode: db.isConfigured(),
+  }));
+}
+
 // ── Main server ─────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -735,6 +796,40 @@ const server = http.createServer(async (req, res) => {
     // Reuse the POST handler by faking a JSON body
     req._jsonBody = { text, voice };
     await handleTTS(req, res);
+    return;
+  }
+
+  // ─── Auth endpoints ────────────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/api/auth/signup') {
+    await auth.handleSignup(req, res);
+    return;
+  }
+  if (req.method === 'POST' && req.url === '/api/auth/signin') {
+    await auth.handleSignin(req, res);
+    return;
+  }
+  if (req.method === 'GET' && req.url === '/api/auth/me') {
+    await auth.handleMe(req, res);
+    return;
+  }
+  if (req.method === 'POST' && req.url === '/api/auth/signout') {
+    await auth.handleSignout(req, res);
+    return;
+  }
+  if (req.method === 'PATCH' && req.url === '/api/auth/profile') {
+    await auth.handleUpdateProfile(req, res);
+    return;
+  }
+
+  // ─── Feedback ──────────────────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/api/feedback') {
+    await handleFeedback(req, res);
+    return;
+  }
+
+  // ─── Public client config ──────────────────────────────────────
+  if (req.method === 'GET' && req.url.split('?')[0] === '/api/config') {
+    handleConfig(req, res);
     return;
   }
 
@@ -835,7 +930,17 @@ const server = http.createServer(async (req, res) => {
   res.end('Not Found');
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
   console.log(`HablaYa server running on port ${PORT}`);
   console.log(`OpenAI API: ${OPENAI_API_KEY ? 'configured' : 'NOT configured — set OPENAI_API_KEY'}`);
+  console.log(`PostHog: ${POSTHOG_API_KEY ? 'configured' : 'NOT configured (optional)'}`);
+  console.log(`Database: ${db.isConfigured() ? 'configured' : 'NOT configured — set DATABASE_URL for auth/feedback'}`);
+
+  if (db.isConfigured()) {
+    try {
+      await db.runMigrations();
+    } catch (err) {
+      console.error('[Server] Database migrations failed — auth and feedback will be disabled');
+    }
+  }
 });

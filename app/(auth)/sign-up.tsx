@@ -15,28 +15,31 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, borderRadius, shadows } from '@/src/constants/theme';
 import { useApp } from '@/src/contexts/AppContext';
-import type { User } from '@/src/types';
 
 export default function SignUpScreen() {
   const router = useRouter();
-  const { setUser, setIsOnboarded } = useApp();
+  const { signUp, setIsOnboarded } = useApp();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<{
     name?: string;
     email?: string;
     password?: string;
+    inviteCode?: string;
+    submit?: string;
   }>({});
   const [isLoading, setIsLoading] = useState(false);
 
   const emailRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
+  const inviteRef = useRef<TextInput>(null);
 
   function validate(): boolean {
-    const newErrors: { name?: string; email?: string; password?: string } = {};
+    const newErrors: typeof errors = {};
 
     if (!name.trim()) {
       newErrors.name = 'Name is required';
@@ -56,6 +59,10 @@ export default function SignUpScreen() {
       newErrors.password = 'Password must be at least 6 characters';
     }
 
+    if (!inviteCode.trim()) {
+      newErrors.inviteCode = 'Invite code is required';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   }
@@ -64,29 +71,22 @@ export default function SignUpScreen() {
     if (!validate()) return;
 
     setIsLoading(true);
+    setErrors((prev) => ({ ...prev, submit: undefined }));
 
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-
-    const mockUser: User = {
-      id: `user_${Date.now()}`,
-      email: email.trim().toLowerCase(),
-      name: name.trim(),
-      level: 'silencioso',
-      subLevel: 0,
-      nativeLanguage: 'en',
-      targetAccent: 'es-MX',
-      createdAt: new Date().toISOString(),
-      streak: 0,
-      totalMinutesSpoken: 0,
-      conversationsCompleted: 0,
-      isPremium: false,
-    };
-
-    setUser(mockUser);
-    setIsOnboarded(false);
-    setIsLoading(false);
-    router.replace('/(onboarding)/level-select');
+    try {
+      await signUp({
+        email: email.trim().toLowerCase(),
+        name: name.trim(),
+        password,
+        inviteCode: inviteCode.trim().toUpperCase(),
+      });
+      await setIsOnboarded(false);
+      router.replace('/(onboarding)/level-select');
+    } catch (err: any) {
+      setErrors((prev) => ({ ...prev, submit: err?.message || 'Sign up failed. Please try again.' }));
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
@@ -221,8 +221,8 @@ export default function SignUpScreen() {
                         setErrors((prev) => ({ ...prev, password: undefined }));
                     }}
                     secureTextEntry={!showPassword}
-                    returnKeyType="done"
-                    onSubmitEditing={handleSignUp}
+                    returnKeyType="next"
+                    onSubmitEditing={() => inviteRef.current?.focus()}
                   />
                   <Pressable
                     onPress={() => setShowPassword(!showPassword)}
@@ -240,6 +240,55 @@ export default function SignUpScreen() {
                   <Text style={styles.errorText}>{errors.password}</Text>
                 ) : null}
               </View>
+
+              {/* Invite code field */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Invite Code</Text>
+                <View
+                  style={[
+                    styles.inputContainer,
+                    errors.inviteCode ? styles.inputContainerError : null,
+                  ]}
+                >
+                  <Ionicons
+                    name="key-outline"
+                    size={20}
+                    color={errors.inviteCode ? colors.errorRed : colors.mediumGray}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    ref={inviteRef}
+                    style={styles.input}
+                    placeholder="HABLAYA-XXXXX"
+                    placeholderTextColor={colors.mediumGray}
+                    value={inviteCode}
+                    onChangeText={(text) => {
+                      setInviteCode(text);
+                      if (errors.inviteCode)
+                        setErrors((prev) => ({ ...prev, inviteCode: undefined }));
+                    }}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    onSubmitEditing={handleSignUp}
+                  />
+                </View>
+                {errors.inviteCode ? (
+                  <Text style={styles.errorText}>{errors.inviteCode}</Text>
+                ) : (
+                  <Text style={styles.helperText}>
+                    Ask Carl for an invite code (HablaYa is in private beta).
+                  </Text>
+                )}
+              </View>
+
+              {/* Submit error */}
+              {errors.submit ? (
+                <View style={styles.submitErrorBanner}>
+                  <Ionicons name="alert-circle" size={18} color={colors.errorRed} />
+                  <Text style={styles.submitErrorText}>{errors.submit}</Text>
+                </View>
+              ) : null}
 
               {/* Sign up button */}
               <Pressable
@@ -359,6 +408,27 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.medium,
     color: colors.errorRed,
     marginLeft: spacing.xs,
+  },
+  helperText: {
+    fontSize: typography.sizes.xs,
+    color: colors.textSecondary,
+    marginLeft: spacing.xs,
+  },
+  submitErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    backgroundColor: colors.errorRed + '10',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.errorRed + '40',
+  },
+  submitErrorText: {
+    flex: 1,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+    color: colors.errorRed,
   },
   signUpButton: {
     backgroundColor: colors.deepTeal,

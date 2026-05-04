@@ -82,7 +82,7 @@ const LEVEL_MAP: Record<string, LevelInfo> = {
 export default function ResultsScreen() {
   const router = useRouter();
   const { level } = useLocalSearchParams<{ level: string }>();
-  const { user, setUser, setIsOnboarded } = useApp();
+  const { user, updateUser, setIsOnboarded } = useApp();
 
   const levelInfo = LEVEL_MAP[level ?? 'beginner'] ?? LEVEL_MAP.beginner;
 
@@ -134,11 +134,10 @@ export default function ResultsScreen() {
     }).start();
   }, []);
 
-  function handleStart() {
+  async function handleStart() {
     // Update user with assigned level
     if (user) {
-      setUser({
-        ...user,
+      await updateUser({
         level: levelInfo.fluencyLevel,
         subLevel: 1,
       });

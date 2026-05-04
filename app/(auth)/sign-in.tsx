@@ -15,22 +15,21 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, borderRadius, shadows } from '@/src/constants/theme';
 import { useApp } from '@/src/contexts/AppContext';
-import type { User } from '@/src/types';
 
 export default function SignInScreen() {
   const router = useRouter();
-  const { setUser } = useApp();
+  const { signIn, setIsOnboarded } = useApp();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
+  const [errors, setErrors] = useState<{ email?: string; password?: string; submit?: string }>({});
   const [isLoading, setIsLoading] = useState(false);
 
   const passwordRef = useRef<TextInput>(null);
 
   function validate(): boolean {
-    const newErrors: { email?: string; password?: string } = {};
+    const newErrors: typeof errors = {};
 
     if (!email.trim()) {
       newErrors.email = 'Email is required';
@@ -52,28 +51,18 @@ export default function SignInScreen() {
     if (!validate()) return;
 
     setIsLoading(true);
+    setErrors((prev) => ({ ...prev, submit: undefined }));
 
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    const mockUser: User = {
-      id: 'user_001',
-      email: email.trim().toLowerCase(),
-      name: email.split('@')[0],
-      level: 'principiante',
-      subLevel: 1,
-      nativeLanguage: 'en',
-      targetAccent: 'es-MX',
-      createdAt: new Date().toISOString(),
-      streak: 3,
-      totalMinutesSpoken: 45,
-      conversationsCompleted: 5,
-      isPremium: false,
-    };
-
-    setUser(mockUser);
-    setIsLoading(false);
-    router.replace('/(tabs)');
+    try {
+      await signIn(email.trim().toLowerCase(), password);
+      // Returning users skip onboarding
+      await setIsOnboarded(true);
+      router.replace('/(tabs)');
+    } catch (err: any) {
+      setErrors((prev) => ({ ...prev, submit: err?.message || 'Sign in failed.' }));
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
@@ -189,6 +178,14 @@ export default function SignInScreen() {
                   <Text style={styles.errorText}>{errors.password}</Text>
                 ) : null}
               </View>
+
+              {/* Submit error */}
+              {errors.submit ? (
+                <View style={styles.submitErrorBanner}>
+                  <Ionicons name="alert-circle" size={18} color={colors.errorRed} />
+                  <Text style={styles.submitErrorText}>{errors.submit}</Text>
+                </View>
+              ) : null}
 
               {/* Sign in button */}
               <Pressable
@@ -308,6 +305,22 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.medium,
     color: colors.errorRed,
     marginLeft: spacing.xs,
+  },
+  submitErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.md,
+    backgroundColor: colors.errorRed + '10',
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.errorRed + '40',
+  },
+  submitErrorText: {
+    flex: 1,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.medium,
+    color: colors.errorRed,
   },
   signInButton: {
     backgroundColor: colors.deepTeal,

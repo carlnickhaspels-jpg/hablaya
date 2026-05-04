@@ -1,8 +1,11 @@
 import { useEffect } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AppProvider, useApp } from '@/src/contexts/AppContext';
 import { colors } from '@/src/constants/theme';
+import PwaInstallBanner from '@/src/components/PwaInstallBanner';
+import { trackPageView } from '@/src/services/analytics';
 
 function RootLayoutNav() {
   const { user, isOnboarded } = useApp();
@@ -22,9 +25,16 @@ function RootLayoutNav() {
     }
   }, [user, isOnboarded, segments]);
 
+  // Fire a pageview each time the route changes
+  useEffect(() => {
+    const path = '/' + segments.join('/');
+    trackPageView(path);
+  }, [segments]);
+
   return (
-    <>
+    <View style={layoutStyles.root}>
       <StatusBar style="dark" />
+      <PwaInstallBanner />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(onboarding)" />
@@ -44,9 +54,16 @@ function RootLayoutNav() {
           }}
         />
       </Stack>
-    </>
+    </View>
   );
 }
+
+const layoutStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: colors.warmWhite,
+  },
+});
 
 export default function RootLayout() {
   return (

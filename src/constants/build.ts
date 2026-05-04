@@ -6,5 +6,5 @@
 
 // Bumped on every deploy. The Profile screen compares this to the
 // server's /api/version response.
-export const CLIENT_VERSION = '1.3.0';
-export const CLIENT_BUILD_AT = '2026-04-28T17:25:00Z';
+export const CLIENT_VERSION = '2.0.0';
+export const CLIENT_BUILD_AT = '2026-04-28T18:30:00Z';

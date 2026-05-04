@@ -36,6 +36,14 @@ import CorrectionCard from '@/src/components/CorrectionCard';
 import TranslatePopup from '@/src/components/TranslatePopup';
 import ImprovePopup from '@/src/components/ImprovePopup';
 import HintBar from '@/src/components/HintBar';
+import {
+  trackConversationStart,
+  trackConversationEnd,
+  trackUserMessage,
+  trackHintRequested,
+  trackImproveRequested,
+  trackTranslateUsed,
+} from '@/src/services/analytics';
 
 type ConversationState = 'idle' | 'recording' | 'processing' | 'typing';
 
@@ -199,6 +207,11 @@ export default function ConversationScreen() {
     };
   }, []);
 
+  // Analytics: log when a conversation begins
+  useEffect(() => {
+    trackConversationStart(id ?? 'free-talk', scenario?.theme);
+  }, [id, scenario?.theme]);
+
   // Load initial tutor greeting
   useEffect(() => {
     const greeting = getInitialGreeting(scenario);
@@ -297,6 +310,10 @@ export default function ConversationScreen() {
         pronunciationScore: score,
       };
 
+      const hasForeignWords =
+        !!result.detectedLanguage && result.detectedLanguage !== 'es';
+      trackUserMessage(id ?? 'free-talk', hasForeignWords);
+
       setUserMessageCount((prev) => prev + 1);
       setMessages((prev) => {
         const updated = [...prev, userMessage];
@@ -307,7 +324,7 @@ export default function ConversationScreen() {
         return updated;
       });
     },
-    [corrections, addTutorResponse]
+    [corrections, addTutorResponse, id]
   );
 
   // Simple, reliable tap-to-toggle:
@@ -358,6 +375,8 @@ export default function ConversationScreen() {
       pronunciationScore: Math.floor(Math.random() * 36) + 60,
     };
 
+    trackUserMessage(id ?? 'free-talk', false);
+
     setTextInputValue('');
     setUserMessageCount((prev) => prev + 1);
 
@@ -366,13 +385,14 @@ export default function ConversationScreen() {
       addTutorResponse(updated, corrections);
       return updated;
     });
-  }, [textInputValue, state, corrections, addTutorResponse]);
+  }, [textInputValue, state, corrections, addTutorResponse, id]);
 
   const handlePlayAudio = useCallback((text: string) => {
     playAudio(text);
   }, []);
 
   const handleHintRequest = useCallback(async () => {
+    trackHintRequested(id ?? 'free-talk');
     setHintLoading(true);
     setHint(null);
     try {
@@ -383,12 +403,13 @@ export default function ConversationScreen() {
     } finally {
       setHintLoading(false);
     }
-  }, [messages, scenario]);
+  }, [messages, scenario, id]);
 
   const handleWordTap = useCallback((word: string, fullMessage: string) => {
     // Strip punctuation
     const cleaned = word.replace(/[.,!?;:¡¿"'()]/g, '').trim();
     if (!cleaned) return;
+    trackTranslateUsed(cleaned);
     setTranslateContext(fullMessage);
     setTranslateText(cleaned);
   }, []);
@@ -399,11 +420,14 @@ export default function ConversationScreen() {
   }, []);
 
   const handleImproveMessage = useCallback((text: string) => {
+    trackImproveRequested();
     setImproveText(text);
   }, []);
 
   const handleEndSession = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
+
+    trackConversationEnd(id ?? 'free-talk', duration, messages.length);
 
     router.push({
       pathname: '/conversation/summary',

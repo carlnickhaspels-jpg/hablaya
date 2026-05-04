@@ -15,6 +15,7 @@ import { useApp } from '@/src/contexts/AppContext';
 import type { FluencyLevel } from '@/src/types';
 import PickerModal, { PickerOption } from '@/src/components/PickerModal';
 import ConfirmModal from '@/src/components/ConfirmModal';
+import FeedbackModal from '@/src/components/FeedbackModal';
 import { CLIENT_VERSION, CLIENT_BUILD_AT } from '@/src/constants/build';
 
 const LEVEL_DISPLAY: Record<string, string> = {
@@ -94,7 +95,7 @@ function SettingRow({
 }
 
 export default function ProfileScreen() {
-  const { user, setUser, setIsOnboarded } = useApp();
+  const { user, setUser, setIsOnboarded, signOut, updateUser } = useApp();
   const router = useRouter();
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -107,6 +108,7 @@ export default function ProfileScreen() {
   const [showRetakeConfirm, setShowRetakeConfirm] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [showNuclearConfirm, setShowNuclearConfirm] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   // Version check — detects if user has a stale cached app
   const [serverVersion, setServerVersion] = useState<string | null>(null);
@@ -211,7 +213,7 @@ export default function ProfileScreen() {
 
   const updateLevel = (newLevel: FluencyLevel) => {
     if (!user) return;
-    setUser({ ...user, level: newLevel });
+    updateUser({ level: newLevel });
   };
 
   const confirmRetake = () => {
@@ -220,9 +222,9 @@ export default function ProfileScreen() {
     router.push('/(onboarding)/level-select');
   };
 
-  const confirmSignOut = () => {
+  const confirmSignOut = async () => {
     setShowSignOutConfirm(false);
-    setUser(null);
+    await signOut();
     router.replace('/(auth)/welcome');
   };
 
@@ -407,6 +409,13 @@ export default function ProfileScreen() {
             />
             <View style={styles.settingDivider} />
             <SettingRow
+              icon="chatbox-ellipses-outline"
+              label="Send Feedback"
+              onPress={() => setShowFeedback(true)}
+              iconColor={colors.deepTeal}
+            />
+            <View style={styles.settingDivider} />
+            <SettingRow
               icon="refresh-circle-outline"
               label="Force Update Now"
               onPress={handleHardRefresh}
@@ -537,6 +546,11 @@ export default function ProfileScreen() {
           handleNuclearReset();
         }}
         onCancel={() => setShowNuclearConfirm(false)}
+      />
+
+      <FeedbackModal
+        visible={showFeedback}
+        onClose={() => setShowFeedback(false)}
       />
     </SafeAreaView>
   );
