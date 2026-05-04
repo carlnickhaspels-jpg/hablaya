@@ -15,6 +15,7 @@ import { useApp } from '@/src/contexts/AppContext';
 import type { FluencyLevel } from '@/src/types';
 import PickerModal, { PickerOption } from '@/src/components/PickerModal';
 import ConfirmModal from '@/src/components/ConfirmModal';
+import { CLIENT_VERSION, CLIENT_BUILD_AT } from '@/src/constants/build';
 
 const LEVEL_DISPLAY: Record<string, string> = {
   silencioso: 'Silencioso',
@@ -105,6 +106,41 @@ export default function ProfileScreen() {
   const [pickerOpen, setPickerOpen] = useState<null | 'level' | 'voice' | 'speed' | 'correction'>(null);
   const [showRetakeConfirm, setShowRetakeConfirm] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+
+  // Version check — detects if user has a stale cached app
+  const [serverVersion, setServerVersion] = useState<string | null>(null);
+  const [versionState, setVersionState] = useState<'checking' | 'up-to-date' | 'outdated' | 'unknown'>('checking');
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch('/api/version', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        setServerVersion(data.deployedAt || data.startedAt || null);
+        const serverTime = new Date(data.startedAt || data.deployedAt || 0).getTime();
+        const clientTime = new Date(CLIENT_BUILD_AT).getTime();
+        // If server is significantly newer than client (>1 min), client is stale
+        if (serverTime > clientTime + 60_000) {
+          setVersionState('outdated');
+        } else {
+          setVersionState('up-to-date');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setVersionState('unknown');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleHardRefresh = () => {
+    if (typeof window !== 'undefined') {
+      // Force reload bypassing cache
+      (window.location as any).reload(true);
+    }
+  };
 
   const userName = user?.name ?? 'Student';
   const userEmail = user?.email ?? 'student@hablaya.com';
@@ -326,7 +362,40 @@ export default function ProfileScreen() {
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
 
-        <Text style={styles.versionText}>HablaYa v1.0.0</Text>
+        <View style={styles.versionContainer}>
+          <Text style={styles.versionText}>
+            HablaYa v{CLIENT_VERSION}
+          </Text>
+          <Text style={styles.versionSubtext}>
+            Built {new Date(CLIENT_BUILD_AT).toLocaleString('nl-NL', {
+              day: 'numeric',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </Text>
+          {versionState === 'outdated' && (
+            <TouchableOpacity
+              style={styles.updateBanner}
+              onPress={handleHardRefresh}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="refresh-circle" size={20} color={colors.softOrange} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.updateBannerTitle}>Update available</Text>
+                <Text style={styles.updateBannerText}>
+                  Tap to reload — your version is older than the server
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          {versionState === 'up-to-date' && (
+            <View style={styles.versionUpToDate}>
+              <Ionicons name="checkmark-circle" size={14} color={colors.successGreen} />
+              <Text style={styles.versionUpToDateText}>Up to date</Text>
+            </View>
+          )}
+        </View>
         <View style={{ height: 120 }} />
       </ScrollView>
 
@@ -553,10 +622,53 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.semibold,
     color: colors.errorRed,
   },
+  versionContainer: {
+    alignItems: 'center',
+    marginTop: spacing.md,
+    gap: 2,
+  },
   versionText: {
     textAlign: 'center',
     fontSize: typography.sizes.xs,
     color: colors.mediumGray,
+  },
+  versionSubtext: {
+    textAlign: 'center',
+    fontSize: typography.sizes.xs,
+    color: colors.mediumGray,
+  },
+  versionUpToDate: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: spacing.xs,
+  },
+  versionUpToDateText: {
+    fontSize: typography.sizes.xs,
+    color: colors.successGreen,
+    fontWeight: typography.weights.medium,
+  },
+  updateBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.softOrange + '15',
+    borderWidth: 1,
+    borderColor: colors.softOrange + '40',
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
     marginTop: spacing.md,
+    marginHorizontal: spacing.md,
+    alignSelf: 'stretch',
+  },
+  updateBannerTitle: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.bold,
+    color: colors.softOrange,
+  },
+  updateBannerText: {
+    fontSize: typography.sizes.xs,
+    color: colors.darkText,
   },
 });

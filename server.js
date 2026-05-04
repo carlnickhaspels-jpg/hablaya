@@ -6,6 +6,7 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 const DIST_DIR = path.join(__dirname, 'dist');
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+const serverStartedAt = new Date().toISOString();
 
 // PWA / iOS home-screen meta tags injected into every index.html response
 const PWA_META_TAGS = `
@@ -714,6 +715,21 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'POST' && req.url === '/api/tts') {
     await handleTTS(req, res);
+    return;
+  }
+
+  // Version endpoint — returns when the server was deployed.
+  // The client compares this to its build constant to detect stale caches.
+  if (req.method === 'GET' && req.url.split('?')[0] === '/api/version') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    });
+    res.end(JSON.stringify({
+      version: process.env.RAILWAY_GIT_COMMIT_SHA || 'dev',
+      deployedAt: process.env.RAILWAY_DEPLOYMENT_CREATED_AT || new Date().toISOString(),
+      startedAt: serverStartedAt,
+    }));
     return;
   }
 
