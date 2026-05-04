@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { colors, typography, spacing, borderRadius, shadows } from '@/src/constants/theme';
 import { useApp } from '@/src/contexts/AppContext';
+import type { FluencyLevel } from '@/src/types';
 
 const LEVEL_DISPLAY: Record<string, string> = {
   silencioso: 'Silencioso',
@@ -20,6 +21,14 @@ const LEVEL_DISPLAY: Record<string, string> = {
   conversador: 'Conversador',
   fluido: 'Fluido',
   nativo: 'Nativo',
+};
+
+const LEVEL_DESCRIPTIONS: Record<string, string> = {
+  silencioso: 'Beginner — first words',
+  principiante: 'Basics — short sentences',
+  conversador: 'Intermediate — full conversations',
+  fluido: 'Fluent — nuance and complexity',
+  nativo: 'Native-like — refining accent',
 };
 
 interface SettingRowProps {
@@ -83,7 +92,7 @@ function SettingRow({
 }
 
 export default function ProfileScreen() {
-  const { user, setUser } = useApp();
+  const { user, setUser, setIsOnboarded } = useApp();
   const router = useRouter();
 
   const [notificationsEnabled, setNotificationsEnabled] = React.useState(true);
@@ -147,6 +156,61 @@ export default function ProfileScreen() {
     ]);
   };
 
+  const updateLevel = (newLevel: FluencyLevel) => {
+    if (!user) return;
+    setUser({ ...user, level: newLevel });
+  };
+
+  const handleLevelSelect = () => {
+    Alert.alert(
+      'Spanish Level',
+      'Pick the level that matches your current Spanish ability. Your tutor will adjust the difficulty.',
+      [
+        {
+          text: `${LEVEL_DISPLAY.silencioso} — ${LEVEL_DESCRIPTIONS.silencioso}`,
+          onPress: () => updateLevel('silencioso'),
+        },
+        {
+          text: `${LEVEL_DISPLAY.principiante} — ${LEVEL_DESCRIPTIONS.principiante}`,
+          onPress: () => updateLevel('principiante'),
+        },
+        {
+          text: `${LEVEL_DISPLAY.conversador} — ${LEVEL_DESCRIPTIONS.conversador}`,
+          onPress: () => updateLevel('conversador'),
+        },
+        {
+          text: `${LEVEL_DISPLAY.fluido} — ${LEVEL_DESCRIPTIONS.fluido}`,
+          onPress: () => updateLevel('fluido'),
+        },
+        {
+          text: `${LEVEL_DISPLAY.nativo} — ${LEVEL_DESCRIPTIONS.nativo}`,
+          onPress: () => updateLevel('nativo'),
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const handleRetakeAssessment = () => {
+    Alert.alert(
+      'Retake Speaking Assessment',
+      'Want to retake the spoken level assessment? This will not change your progress, only your assigned level.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Retake',
+          onPress: () => {
+            // Temporarily clear onboarded so the auth router lets us
+            // through to the onboarding stack. The results screen will
+            // re-enable onboarded when the user finishes.
+            setIsOnboarded(false);
+            router.push('/(onboarding)/level-select');
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
@@ -182,6 +246,27 @@ export default function ProfileScreen() {
               </View>
               <Text style={styles.memberSince}>Member since {memberSince}</Text>
             </View>
+          </View>
+        </View>
+
+        {/* Spanish Level */}
+        <View style={styles.settingSection}>
+          <Text style={styles.sectionTitle}>Your Spanish</Text>
+          <View style={styles.settingGroup}>
+            <SettingRow
+              icon="trending-up-outline"
+              label="Spanish Level"
+              value={LEVEL_DISPLAY[userLevel]}
+              onPress={handleLevelSelect}
+              iconColor={colors.softOrange}
+            />
+            <View style={styles.settingDivider} />
+            <SettingRow
+              icon="refresh-outline"
+              label="Retake Speaking Assessment"
+              onPress={handleRetakeAssessment}
+              iconColor={colors.deepTeal}
+            />
           </View>
         </View>
 
