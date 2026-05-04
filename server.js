@@ -798,12 +798,17 @@ const server = http.createServer(async (req, res) => {
     const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
     const cacheControl = ext === '.html'
-      ? 'no-cache'
+      ? 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
       : 'public, max-age=31536000, immutable';
 
     if (ext === '.html') {
       const html = fs.readFileSync(filePath, 'utf8');
-      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': cacheControl });
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Cache-Control': cacheControl,
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      });
       res.end(injectPwaTags(html));
     } else {
       res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': cacheControl });
@@ -818,7 +823,9 @@ const server = http.createServer(async (req, res) => {
     const html = fs.readFileSync(indexPath, 'utf8');
     res.writeHead(200, {
       'Content-Type': 'text/html',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+      'Pragma': 'no-cache',
+      'Expires': '0',
     });
     res.end(injectPwaTags(html));
     return;

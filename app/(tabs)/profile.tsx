@@ -106,6 +106,7 @@ export default function ProfileScreen() {
   const [pickerOpen, setPickerOpen] = useState<null | 'level' | 'voice' | 'speed' | 'correction'>(null);
   const [showRetakeConfirm, setShowRetakeConfirm] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const [showNuclearConfirm, setShowNuclearConfirm] = useState(false);
 
   // Version check — detects if user has a stale cached app
   const [serverVersion, setServerVersion] = useState<string | null>(null);
@@ -135,11 +136,66 @@ export default function ProfileScreen() {
     };
   }, []);
 
-  const handleHardRefresh = () => {
-    if (typeof window !== 'undefined') {
-      // Force reload bypassing cache
-      (window.location as any).reload(true);
-    }
+  const handleHardRefresh = async () => {
+    if (typeof window === 'undefined') return;
+
+    // 1. Try to unregister any service workers (PWAs sometimes have them)
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+    } catch {}
+
+    // 2. Try to delete all caches (Cache Storage API)
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch {}
+
+    // 3. Navigate to a cache-busted URL using replace() so the old URL
+    // can't be served from history cache either.
+    const url = new URL(window.location.href);
+    url.searchParams.set('_t', Date.now().toString());
+    url.hash = '';
+    window.location.replace(url.toString());
+  };
+
+  const handleNuclearReset = async () => {
+    if (typeof window === 'undefined') return;
+
+    // Wipe everything: localStorage, sessionStorage, IndexedDB, caches, SW
+    try { window.localStorage.clear(); } catch {}
+    try { window.sessionStorage.clear(); } catch {}
+
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+    } catch {}
+
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch {}
+
+    try {
+      if ('indexedDB' in window && (indexedDB as any).databases) {
+        const dbs = await (indexedDB as any).databases();
+        for (const db of dbs) {
+          if (db.name) indexedDB.deleteDatabase(db.name);
+        }
+      }
+    } catch {}
+
+    const url = new URL(window.location.origin + '/');
+    url.searchParams.set('_t', Date.now().toString());
+    window.location.replace(url.toString());
   };
 
   const userName = user?.name ?? 'Student';
@@ -349,6 +405,20 @@ export default function ProfileScreen() {
               onPress={() => {}}
               iconColor={colors.softOrange}
             />
+            <View style={styles.settingDivider} />
+            <SettingRow
+              icon="refresh-circle-outline"
+              label="Force Update Now"
+              onPress={handleHardRefresh}
+              iconColor={colors.deepTeal}
+            />
+            <View style={styles.settingDivider} />
+            <SettingRow
+              icon="trash-outline"
+              label="Clear All Cached Data"
+              onPress={() => setShowNuclearConfirm(true)}
+              iconColor={colors.errorRed}
+            />
           </View>
         </View>
 
@@ -454,6 +524,19 @@ export default function ProfileScreen() {
         destructive
         onConfirm={confirmSignOut}
         onCancel={() => setShowSignOutConfirm(false)}
+      />
+
+      <ConfirmModal
+        visible={showNuclearConfirm}
+        title="Clear All Cached Data"
+        message="This wipes all cached files, service workers, and stored data, then forces a fresh download from the server. Use this if your app feels stuck on an old version. You'll need to sign in again."
+        confirmText="Clear Everything"
+        destructive
+        onConfirm={() => {
+          setShowNuclearConfirm(false);
+          handleNuclearReset();
+        }}
+        onCancel={() => setShowNuclearConfirm(false)}
       />
     </SafeAreaView>
   );
