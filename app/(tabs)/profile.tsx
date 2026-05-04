@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +13,8 @@ import { useRouter } from 'expo-router';
 import { colors, typography, spacing, borderRadius, shadows } from '@/src/constants/theme';
 import { useApp } from '@/src/contexts/AppContext';
 import type { FluencyLevel } from '@/src/types';
+import PickerModal, { PickerOption } from '@/src/components/PickerModal';
+import ConfirmModal from '@/src/components/ConfirmModal';
 
 const LEVEL_DISPLAY: Record<string, string> = {
   silencioso: 'Silencioso',
@@ -95,10 +96,15 @@ export default function ProfileScreen() {
   const { user, setUser, setIsOnboarded } = useApp();
   const router = useRouter();
 
-  const [notificationsEnabled, setNotificationsEnabled] = React.useState(true);
-  const [tutorVoice, setTutorVoice] = React.useState('Female - Natural');
-  const [speakingSpeed, setSpeakingSpeed] = React.useState('Normal');
-  const [correctionIntensity, setCorrectionIntensity] = React.useState('Important only');
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [tutorVoice, setTutorVoice] = useState('Female - Natural');
+  const [speakingSpeed, setSpeakingSpeed] = useState('Normal');
+  const [correctionIntensity, setCorrectionIntensity] = useState('Important only');
+
+  // Modal state
+  const [pickerOpen, setPickerOpen] = useState<null | 'level' | 'voice' | 'speed' | 'correction'>(null);
+  const [showRetakeConfirm, setShowRetakeConfirm] = useState(false);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
 
   const userName = user?.name ?? 'Student';
   const userEmail = user?.email ?? 'student@hablaya.com';
@@ -111,104 +117,56 @@ export default function ProfileScreen() {
     : 'March 2026';
   const isPremium = user?.isPremium ?? false;
 
-  const handleSignOut = () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: () => {
-            setUser(null);
-            router.replace('/(auth)/welcome');
-          },
-        },
-      ],
-    );
-  };
-
-  const handleVoiceSelect = () => {
-    Alert.alert('Tutor Voice', 'Select a voice for your tutor:', [
-      { text: 'Female - Natural', onPress: () => setTutorVoice('Female - Natural') },
-      { text: 'Male - Natural', onPress: () => setTutorVoice('Male - Natural') },
-      { text: 'Female - Warm', onPress: () => setTutorVoice('Female - Warm') },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  };
-
-  const handleSpeedSelect = () => {
-    Alert.alert('Speaking Speed', 'Choose the tutor speaking speed:', [
-      { text: 'Slow', onPress: () => setSpeakingSpeed('Slow') },
-      { text: 'Normal', onPress: () => setSpeakingSpeed('Normal') },
-      { text: 'Fast', onPress: () => setSpeakingSpeed('Fast') },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  };
-
-  const handleCorrectionSelect = () => {
-    Alert.alert('Correction Intensity', 'How often should the tutor correct you?', [
-      { text: 'All errors', onPress: () => setCorrectionIntensity('All errors') },
-      { text: 'Important only', onPress: () => setCorrectionIntensity('Important only') },
-      { text: 'Flow mode (minimal)', onPress: () => setCorrectionIntensity('Flow mode') },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
-  };
-
   const updateLevel = (newLevel: FluencyLevel) => {
     if (!user) return;
     setUser({ ...user, level: newLevel });
   };
 
-  const handleLevelSelect = () => {
-    Alert.alert(
-      'Spanish Level',
-      'Pick the level that matches your current Spanish ability. Your tutor will adjust the difficulty.',
-      [
-        {
-          text: `${LEVEL_DISPLAY.silencioso} — ${LEVEL_DESCRIPTIONS.silencioso}`,
-          onPress: () => updateLevel('silencioso'),
-        },
-        {
-          text: `${LEVEL_DISPLAY.principiante} — ${LEVEL_DESCRIPTIONS.principiante}`,
-          onPress: () => updateLevel('principiante'),
-        },
-        {
-          text: `${LEVEL_DISPLAY.conversador} — ${LEVEL_DESCRIPTIONS.conversador}`,
-          onPress: () => updateLevel('conversador'),
-        },
-        {
-          text: `${LEVEL_DISPLAY.fluido} — ${LEVEL_DESCRIPTIONS.fluido}`,
-          onPress: () => updateLevel('fluido'),
-        },
-        {
-          text: `${LEVEL_DISPLAY.nativo} — ${LEVEL_DESCRIPTIONS.nativo}`,
-          onPress: () => updateLevel('nativo'),
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+  const confirmRetake = () => {
+    setShowRetakeConfirm(false);
+    setIsOnboarded(false);
+    router.push('/(onboarding)/level-select');
   };
 
-  const handleRetakeAssessment = () => {
-    Alert.alert(
-      'Retake Speaking Assessment',
-      'Want to retake the spoken level assessment? This will not change your progress, only your assigned level.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Retake',
-          onPress: () => {
-            // Temporarily clear onboarded so the auth router lets us
-            // through to the onboarding stack. The results screen will
-            // re-enable onboarded when the user finishes.
-            setIsOnboarded(false);
-            router.push('/(onboarding)/level-select');
-          },
-        },
-      ]
-    );
+  const confirmSignOut = () => {
+    setShowSignOutConfirm(false);
+    setUser(null);
+    router.replace('/(auth)/welcome');
+  };
+
+  // Picker option lists
+  const levelOptions: PickerOption[] = [
+    { key: 'silencioso', label: LEVEL_DISPLAY.silencioso, description: LEVEL_DESCRIPTIONS.silencioso },
+    { key: 'principiante', label: LEVEL_DISPLAY.principiante, description: LEVEL_DESCRIPTIONS.principiante },
+    { key: 'conversador', label: LEVEL_DISPLAY.conversador, description: LEVEL_DESCRIPTIONS.conversador },
+    { key: 'fluido', label: LEVEL_DISPLAY.fluido, description: LEVEL_DESCRIPTIONS.fluido },
+    { key: 'nativo', label: LEVEL_DISPLAY.nativo, description: LEVEL_DESCRIPTIONS.nativo },
+  ];
+
+  const voiceOptions: PickerOption[] = [
+    { key: 'Female - Natural', label: 'Female — Natural' },
+    { key: 'Male - Natural', label: 'Male — Natural' },
+    { key: 'Female - Warm', label: 'Female — Warm' },
+  ];
+
+  const speedOptions: PickerOption[] = [
+    { key: 'Slow', label: 'Slow', description: 'For beginners' },
+    { key: 'Normal', label: 'Normal', description: 'Conversational pace' },
+    { key: 'Fast', label: 'Fast', description: 'Native speed' },
+  ];
+
+  const correctionOptions: PickerOption[] = [
+    { key: 'All errors', label: 'All errors', description: 'Correct every mistake' },
+    { key: 'Important only', label: 'Important only', description: 'Only meaningful corrections' },
+    { key: 'Flow mode', label: 'Flow mode', description: 'Minimal interruptions' },
+  ];
+
+  const handlePickerSelect = (key: string) => {
+    if (pickerOpen === 'level') updateLevel(key as FluencyLevel);
+    else if (pickerOpen === 'voice') setTutorVoice(key);
+    else if (pickerOpen === 'speed') setSpeakingSpeed(key);
+    else if (pickerOpen === 'correction') setCorrectionIntensity(key);
+    setPickerOpen(null);
   };
 
   return (
@@ -257,14 +215,14 @@ export default function ProfileScreen() {
               icon="trending-up-outline"
               label="Spanish Level"
               value={LEVEL_DISPLAY[userLevel]}
-              onPress={handleLevelSelect}
+              onPress={() => setPickerOpen('level')}
               iconColor={colors.softOrange}
             />
             <View style={styles.settingDivider} />
             <SettingRow
               icon="refresh-outline"
               label="Retake Speaking Assessment"
-              onPress={handleRetakeAssessment}
+              onPress={() => setShowRetakeConfirm(true)}
               iconColor={colors.deepTeal}
             />
           </View>
@@ -278,21 +236,21 @@ export default function ProfileScreen() {
               icon="mic-outline"
               label="Tutor Voice"
               value={tutorVoice}
-              onPress={handleVoiceSelect}
+              onPress={() => setPickerOpen('voice')}
             />
             <View style={styles.settingDivider} />
             <SettingRow
               icon="speedometer-outline"
               label="Speaking Speed"
               value={speakingSpeed}
-              onPress={handleSpeedSelect}
+              onPress={() => setPickerOpen('speed')}
             />
             <View style={styles.settingDivider} />
             <SettingRow
               icon="school-outline"
               label="Correction Intensity"
               value={correctionIntensity}
-              onPress={handleCorrectionSelect}
+              onPress={() => setPickerOpen('correction')}
             />
           </View>
         </View>
@@ -362,7 +320,7 @@ export default function ProfileScreen() {
         <TouchableOpacity
           style={styles.signOutButton}
           activeOpacity={0.7}
-          onPress={handleSignOut}
+          onPress={() => setShowSignOutConfirm(true)}
         >
           <Ionicons name="log-out-outline" size={20} color={colors.errorRed} />
           <Text style={styles.signOutText}>Sign Out</Text>
@@ -371,6 +329,63 @@ export default function ProfileScreen() {
         <Text style={styles.versionText}>HablaYa v1.0.0</Text>
         <View style={{ height: 120 }} />
       </ScrollView>
+
+      {/* Picker modals */}
+      <PickerModal
+        visible={pickerOpen === 'level'}
+        title="Spanish Level"
+        message="Pick the level that matches your current Spanish ability. Your tutor will adjust the difficulty."
+        options={levelOptions}
+        selectedKey={userLevel}
+        onSelect={handlePickerSelect}
+        onCancel={() => setPickerOpen(null)}
+      />
+      <PickerModal
+        visible={pickerOpen === 'voice'}
+        title="Tutor Voice"
+        message="Choose how your AI tutor sounds."
+        options={voiceOptions}
+        selectedKey={tutorVoice}
+        onSelect={handlePickerSelect}
+        onCancel={() => setPickerOpen(null)}
+      />
+      <PickerModal
+        visible={pickerOpen === 'speed'}
+        title="Speaking Speed"
+        message="How fast should the tutor speak?"
+        options={speedOptions}
+        selectedKey={speakingSpeed}
+        onSelect={handlePickerSelect}
+        onCancel={() => setPickerOpen(null)}
+      />
+      <PickerModal
+        visible={pickerOpen === 'correction'}
+        title="Correction Intensity"
+        message="How often should the tutor correct your Spanish?"
+        options={correctionOptions}
+        selectedKey={correctionIntensity}
+        onSelect={handlePickerSelect}
+        onCancel={() => setPickerOpen(null)}
+      />
+
+      {/* Confirm modals */}
+      <ConfirmModal
+        visible={showRetakeConfirm}
+        title="Retake Speaking Assessment"
+        message="Want to redo the spoken level assessment? Your progress (streak, minutes, conversations) stays — only your assigned level changes."
+        confirmText="Retake"
+        onConfirm={confirmRetake}
+        onCancel={() => setShowRetakeConfirm(false)}
+      />
+      <ConfirmModal
+        visible={showSignOutConfirm}
+        title="Sign Out"
+        message="Are you sure you want to sign out of HablaYa?"
+        confirmText="Sign Out"
+        destructive
+        onConfirm={confirmSignOut}
+        onCancel={() => setShowSignOutConfirm(false)}
+      />
     </SafeAreaView>
   );
 }
