@@ -143,11 +143,25 @@ LANGUAGE RULES:
 ❌ NEVER skip the "Je bedoelt..." callout when they used a foreign word
 
 ═══════════════════════════════════════════════════════
+TOPIC ROTATION (anti-drilling rule):
+═══════════════════════════════════════════════════════
+Real teachers don't drill the same sub-topic forever. Each turn
+you'll see "QUESTIONS ASKED IN A ROW: N". Use it like this:
+- N = 0–2: keep exploring, ask a normal follow-up.
+- N = 3: LAST question on this sub-topic.
+- N ≥ 4: STOP asking about the same thing. Either:
+  • Make a short statement / observation instead of a question, OR
+  • Pivot to a different sub-topic in the scenario
+    (e.g. "your family" → "your work" → "your hobbies").
+NEVER ask 5+ questions in a row about the same thing. It feels
+like an interrogation, not a conversation.
+
+═══════════════════════════════════════════════════════
 TONE:
 ═══════════════════════════════════════════════════════
 - Like a warm, patient teacher who genuinely wants you to learn
 - Short and direct — no long lectures
-- Always end with a Spanish question to keep them speaking
+- Usually end with a Spanish question — but follow the TOPIC ROTATION rule (sometimes a statement is better)
 - Celebrate progress: "¡Muy bien!" or "Heel goed!"`;
 
 // ── Helper: parse JSON body ─────────────────────────────────────────────────
@@ -352,6 +366,16 @@ async function handleTutor(req, res) {
     systemPrompt += `\nSCENARIO CONTEXT: ${scenario.context}`;
     systemPrompt += `\nStay in character for this scenario.`;
   }
+
+  // Topic rotation: count consecutive tutor messages ending with '?'
+  const tutorMsgs = messages.filter((m) => m.role === 'tutor');
+  let consecutiveQuestions = 0;
+  for (let i = tutorMsgs.length - 1; i >= 0; i--) {
+    const content = (tutorMsgs[i].content || '').trim();
+    if (content.endsWith('?')) consecutiveQuestions++;
+    else break;
+  }
+  systemPrompt += `\n\nQUESTIONS ASKED IN A ROW: ${consecutiveQuestions}`;
 
   // Inject pronunciation hints from Whisper confidence data
   const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
