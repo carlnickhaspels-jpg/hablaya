@@ -1,6 +1,8 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const db = require('./db');
+const email = require('./email');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 const TOKEN_EXPIRY_DAYS = 30;
@@ -157,6 +159,115 @@ async function handleSignout(req, res) {
   return send(res, 200, { ok: true });
 }
 
+// ─── Password reset ─────────────────────────────────────────────────────────
+//
+// Flow:
+//   1) User POSTs email to /api/auth/request-password-reset
+//   2) If user exists, generate a random token, store it with 1-hour TTL,
+//      email them a link with the token.
+//   3) Response is ALWAYS "ok" (whether or not the email exists) to avoid
+//      leaking which emails are registered (anti-enumeration).
+//   4) User clicks link → frontend opens /reset-password?token=... → POSTs
+//      token + new password to /api/auth/reset-password
+//   5) Server validates token (exists, not expired, not used), updates the
+//      user's password hash, marks token used. Old sessions are invalidated.
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+async function handleRequestPasswordReset(req, res) {
+  if (!db.isConfigured()) {
+    return send(res, 503, { error: 'Database not configured.' });
+  }
+
+  let body;
+  try { body = await readJsonBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+  const { email: emailAddr } = body;
+
+  if (!isValidEmail(emailAddr)) {
+    // Even for invalid email format we still return "ok" to avoid hinting
+    // at validity rules — but skip the DB work.
+    return send(res, 200, { ok: true });
+  }
+
+  const normalized = emailAddr.toLowerCase();
+  const result = await db.query('SELECT id, name, email FROM users WHERE email = $1', [normalized]);
+
+  // Only send an email if the user actually exists, but always return the
+  // same response to the caller (prevents email-enumeration via this endpoint).
+  if (result.rows.length) {
+    const user = result.rows[0];
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+
+    try {
+      await db.query(
+        'INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)',
+        [token, user.id, expiresAt]
+      );
+
+      const result = await email.sendPasswordResetEmail({
+        to: user.email,
+        name: user.name,
+        resetToken: token,
+      });
+
+      if (!result.ok) {
+        // Don't leak the error to the client; log it server-side.
+        console.error('[auth] Failed to send reset email:', result.error);
+      }
+    } catch (err) {
+      console.error('[auth] Reset token / email error:', err.message);
+    }
+  }
+
+  return send(res, 200, { ok: true });
+}
+
+async function handleResetPassword(req, res) {
+  if (!db.isConfigured()) {
+    return send(res, 503, { error: 'Database not configured.' });
+  }
+
+  let body;
+  try { body = await readJsonBody(req); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+  const { token, password } = body;
+
+  if (!token || typeof token !== 'string') {
+    return send(res, 400, { error: 'A reset token is required.' });
+  }
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    return send(res, 400, { error: 'Password must be at least 6 characters.' });
+  }
+
+  // Look up token, check expiry + unused
+  const tokenResult = await db.query(
+    `SELECT t.user_id, t.expires_at, t.used_at, u.email
+       FROM password_reset_tokens t
+       JOIN users u ON u.id = t.user_id
+      WHERE t.token = $1`,
+    [token]
+  );
+
+  if (!tokenResult.rows.length) {
+    return send(res, 400, { error: 'This reset link is invalid.' });
+  }
+  const row = tokenResult.rows[0];
+  if (row.used_at) {
+    return send(res, 400, { error: 'This reset link has already been used. Request a new one.' });
+  }
+  if (new Date(row.expires_at).getTime() < Date.now()) {
+    return send(res, 400, { error: 'This reset link has expired. Request a new one.' });
+  }
+
+  // All clear — update password, mark token used, invalidate existing sessions.
+  const newHash = await bcrypt.hash(password, 10);
+  await db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, row.user_id]);
+  await db.query('UPDATE password_reset_tokens SET used_at = NOW() WHERE token = $1', [token]);
+  await db.query('DELETE FROM sessions WHERE user_id = $1', [row.user_id]);
+
+  return send(res, 200, { ok: true, email: row.email });
+}
+
 async function handleUpdateProfile(req, res) {
   const token = getTokenFromRequest(req);
   const user = await verifyToken(token);
@@ -191,6 +302,8 @@ module.exports = {
   handleMe,
   handleSignout,
   handleUpdateProfile,
+  handleRequestPasswordReset,
+  handleResetPassword,
   verifyToken,
   getTokenFromRequest,
   sanitizeUser,

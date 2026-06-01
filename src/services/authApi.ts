@@ -133,6 +133,38 @@ export async function updateProfile(updates: Partial<{
   return adaptUser(data.user);
 }
 
+/**
+ * Request a password-reset email. The server ALWAYS returns ok=true to
+ * prevent leaking which emails are registered. The user always sees the
+ * same "check your inbox" message, regardless of whether the email exists.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  const res = await authedFetch('/api/auth/request-password-reset', {
+    method: 'POST',
+    body: JSON.stringify({ email: email.trim().toLowerCase() }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Could not request password reset. Try again later.');
+  }
+}
+
+/**
+ * Submit a new password using the reset token from the email link.
+ * On success, all existing sessions for the user are invalidated server-side,
+ * so they need to sign in again with the new password.
+ */
+export async function resetPassword(token: string, newPassword: string): Promise<void> {
+  const res = await authedFetch('/api/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, password: newPassword }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Could not reset password.');
+  }
+}
+
 export async function submitFeedback(params: {
   category: 'bug' | 'idea' | 'praise' | 'other';
   message: string;

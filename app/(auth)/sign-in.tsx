@@ -177,6 +177,13 @@ export default function SignInScreen() {
                 {errors.password ? (
                   <Text style={styles.errorText}>{errors.password}</Text>
                 ) : null}
+                <Pressable
+                  onPress={() => router.push('/(auth)/forgot-password')}
+                  hitSlop={8}
+                  style={styles.forgotPasswordPressable}
+                >
+                  <Text style={styles.forgotPasswordText}>Forgot password?</Text>
+                </Pressable>
               </View>
 
               {/* Submit error */}
@@ -305,6 +312,15 @@ const styles = StyleSheet.create({
     fontWeight: typography.weights.medium,
     color: colors.errorRed,
     marginLeft: spacing.xs,
+  },
+  forgotPasswordPressable: {
+    alignSelf: 'flex-end',
+    paddingVertical: spacing.xs,
+  },
+  forgotPasswordText: {
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.semibold,
+    color: colors.deepTeal,
   },
   submitErrorBanner: {
     flexDirection: 'row',
