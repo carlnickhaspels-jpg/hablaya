@@ -87,6 +87,21 @@ async function runMigrations() {
       );
     `);
 
+    await query(`
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        token TEXT PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at TIMESTAMPTZ
+      );
+    `);
+
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_reset_tokens_user_id
+        ON password_reset_tokens(user_id);
+    `);
+
     // Seed a default invite code if no codes exist (for first deploy convenience)
     const result = await query('SELECT COUNT(*) FROM invite_codes');
     if (result.rows[0].count === '0') {

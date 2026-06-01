@@ -872,6 +872,14 @@ const server = http.createServer(async (req, res) => {
     await auth.handleUpdateProfile(req, res);
     return;
   }
+  if (req.method === 'POST' && req.url === '/api/auth/request-password-reset') {
+    await auth.handleRequestPasswordReset(req, res);
+    return;
+  }
+  if (req.method === 'POST' && req.url === '/api/auth/reset-password') {
+    await auth.handleResetPassword(req, res);
+    return;
+  }
 
   // ─── Feedback ──────────────────────────────────────────────────
   if (req.method === 'POST' && req.url === '/api/feedback') {

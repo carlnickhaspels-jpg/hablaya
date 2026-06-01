@@ -15,12 +15,24 @@ function RootLayoutNav() {
   useEffect(() => {
     const inAuthGroup = segments[0] === '(auth)';
     const inOnboardingGroup = segments[0] === '(onboarding)';
+    // Password-reset and forgot-password must stay accessible even to logged-in
+    // users — they may be following an email link or proactively changing
+    // their password. Don't auto-redirect away from these.
+    const segmentStrings = segments as string[];
+    const onPasswordResetFlow =
+      segmentStrings.includes('reset-password') ||
+      segmentStrings.includes('forgot-password');
 
     if (!user && !inAuthGroup) {
       router.replace('/(auth)/welcome');
-    } else if (user && !isOnboarded && !inOnboardingGroup) {
+    } else if (user && !isOnboarded && !inOnboardingGroup && !onPasswordResetFlow) {
       router.replace('/(onboarding)/level-select');
-    } else if (user && isOnboarded && (inAuthGroup || inOnboardingGroup)) {
+    } else if (
+      user &&
+      isOnboarded &&
+      (inAuthGroup || inOnboardingGroup) &&
+      !onPasswordResetFlow
+    ) {
       router.replace('/(tabs)');
     }
   }, [user, isOnboarded, segments]);
