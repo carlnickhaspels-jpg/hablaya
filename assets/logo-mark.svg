@@ -1,0 +1,12 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Left stem -->
+  <rect x="280" y="480" width="130" height="370" rx="65" fill="#FAFAF8"/>
+  <!-- Right stem -->
+  <rect x="614" y="480" width="130" height="370" rx="65" fill="#FAFAF8"/>
+  <!-- Arch (outer pill) -->
+  <rect x="280" y="360" width="464" height="185" rx="232" fill="#FAFAF8"/>
+  <!-- Arch hollow (cutout to bg) -->
+  <rect x="410" y="450" width="204" height="440" rx="102" fill="none"/>
+  <!-- Playful tilde -->
+  <polygon points="270,250 340,200 470,175 560,195 650,235 730,235 790,215 820,230 810,295 730,305 650,305 560,270 470,245 380,270 310,305 260,290" fill="#E85D4A"/>
+</svg>
