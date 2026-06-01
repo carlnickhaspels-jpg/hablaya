@@ -74,6 +74,8 @@ export interface Scenario {
   estimatedMinutes: number;
   context: string;
   starterPrompt: string;
+  /** Dutch translation of starterPrompt, shown to silencioso/principiante users alongside the Spanish line. */
+  starterPromptNl?: string;
   tags: string[];
 }
 

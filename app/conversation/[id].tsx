@@ -19,6 +19,7 @@ import { StatusBar } from 'expo-status-bar';
 import { colors, typography, spacing, borderRadius, shadows } from '@/src/constants/theme';
 import { Message, Correction } from '@/src/types';
 import { getScenarioById } from '@/src/constants/scenarios';
+import { useApp } from '@/src/contexts/AppContext';
 import {
   getInitialGreeting,
   generateTutorResponse,
@@ -167,6 +168,8 @@ export default function ConversationScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const scrollViewRef = useRef<ScrollView>(null);
+  const { user } = useApp();
+  const userLevel = user?.level ?? 'principiante';
 
   const scenario = id && id !== 'free-talk' ? getScenarioById(id) : undefined;
   const screenTitle = scenario?.title ?? 'Free Talk';
@@ -214,7 +217,7 @@ export default function ConversationScreen() {
 
   // Load initial tutor greeting
   useEffect(() => {
-    const greeting = getInitialGreeting(scenario);
+    const greeting = getInitialGreeting(scenario, userLevel);
     const tutorMessage: Message = {
       id: generateId(),
       role: 'tutor',
@@ -227,7 +230,7 @@ export default function ConversationScreen() {
     playAudio(greeting).catch(() => {
       // Silently ignore (autoplay may be blocked until user interacts)
     });
-  }, [scenario]);
+  }, [scenario, userLevel]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -248,7 +251,7 @@ export default function ConversationScreen() {
       const { response, corrections: newCorrections } = await generateTutorResponse(
         allMessages,
         scenario,
-        'principiante',
+        userLevel,
         meta
       );
 
@@ -286,7 +289,7 @@ export default function ConversationScreen() {
       // (We use a separate state for this hint, set below.)
       setAwaitingReply(true);
     },
-    [scenario]
+    [scenario, userLevel]
   );
 
   // Handle a transcribed user utterance from VAD

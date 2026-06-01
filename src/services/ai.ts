@@ -303,11 +303,24 @@ function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-export function getInitialGreeting(scenario?: Scenario): string {
+// Levels where we show the Dutch translation alongside the Spanish starter.
+const LOW_LEVELS = new Set(['silencioso', 'principiante']);
+
+export function getInitialGreeting(scenario?: Scenario, userLevel?: string): string {
+  const showDutch = userLevel ? LOW_LEVELS.has(userLevel) : true;
+
   if (scenario) {
+    if (showDutch && scenario.starterPromptNl) {
+      return `${scenario.starterPrompt}\n\n🇳🇱 ${scenario.starterPromptNl}`;
+    }
     return scenario.starterPrompt;
   }
-  return '¡Hola! Estoy aquí para practicar español contigo. Podemos hablar de lo que quieras. ¿Qué te gustaría platicar hoy?';
+
+  const fallbackEs = '¡Hola! Estoy aquí para practicar español contigo. Podemos hablar de lo que quieras. ¿Qué te gustaría platicar hoy?';
+  if (showDutch) {
+    return `${fallbackEs}\n\n🇳🇱 Hoi! Ik ben hier om Spaans met je te oefenen. We kunnen over alles praten wat je wilt. Waar wil je het vandaag over hebben?`;
+  }
+  return fallbackEs;
 }
 
 export async function generateTutorResponse(
