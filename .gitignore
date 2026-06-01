@@ -40,3 +40,15 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Claude Code & MCP local config (NOT for repo)
+# Exclude everything under .claude/ EXCEPT the intentionally-tracked launch.json
+.claude/*
+!.claude/launch.json
+.claude-flow/
+.mcp.json
+.remember/
+
+# EAS / Google Play credentials — keep these LOCAL, never push
+google-play-service-account.json
+*.keystore
