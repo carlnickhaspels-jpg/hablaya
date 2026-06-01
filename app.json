@@ -48,9 +48,11 @@
       "expo-router"
     ],
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "TO-BE-FILLED-BY-EAS-INIT"
+        "projectId": "1bb55960-2775-4f7c-9452-025fef6ea3e3"
       }
-    }
+    },
+    "owner": "cnh68_spain"
   }
 }
