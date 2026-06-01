@@ -21,9 +21,10 @@ const PWA_META_TAGS = `
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="HablaYa" />
   <meta name="application-name" content="HablaYa" />
-  <meta name="theme-color" content="#0D5C54" />
+  <meta name="theme-color" content="#1A7B72" />
   <link rel="apple-touch-icon" href="/icon.png" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icon.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/favicon.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
 `;
 
@@ -904,14 +905,20 @@ const server = http.createServer(async (req, res) => {
     const manifest = {
       name: 'HablaYa — AI Spanish Tutor',
       short_name: 'HablaYa',
-      description: 'Learn Spanish through real conversations with your AI tutor',
+      description: 'Stop studying. Start speaking. Learn Spanish through real conversations with your personal AI tutor.',
+      lang: 'nl',
+      dir: 'ltr',
       start_url: '/',
+      scope: '/',
       display: 'standalone',
       orientation: 'portrait',
-      background_color: '#0D5C54',
-      theme_color: '#0D5C54',
+      background_color: '#1A7B72',
+      theme_color: '#1A7B72',
+      categories: ['education', 'productivity'],
       icons: [
-        { src: '/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        { src: '/favicon.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+        { src: '/icon.png', sizes: '1024x1024', type: 'image/png', purpose: 'any' },
+        { src: '/icon.png', sizes: '1024x1024', type: 'image/png', purpose: 'maskable' },
       ],
     };
     res.writeHead(200, {
@@ -922,15 +929,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Serve the app icon from /icon.png even though it lives in /assets/
-  if (req.method === 'GET' && req.url.split('?')[0] === '/icon.png') {
-    const iconPath = path.join(__dirname, 'assets', 'icon.png');
-    if (fs.existsSync(iconPath)) {
+  // Serve brand assets from /assets/ at the root so they can be referenced
+  // simply as /icon.png and /favicon.png from manifest + meta tags.
+  const ASSET_ALIASES = {
+    '/icon.png': 'icon.png',
+    '/favicon.png': 'favicon.png',
+    '/favicon.ico': 'favicon.png',
+    '/apple-touch-icon.png': 'icon.png',
+    '/logo.svg': 'logo.svg',
+  };
+  const aliasKey = req.url.split('?')[0];
+  if (req.method === 'GET' && ASSET_ALIASES[aliasKey]) {
+    const assetPath = path.join(__dirname, 'assets', ASSET_ALIASES[aliasKey]);
+    if (fs.existsSync(assetPath)) {
+      const ext = path.extname(assetPath).toLowerCase();
       res.writeHead(200, {
-        'Content-Type': 'image/png',
+        'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
         'Cache-Control': 'public, max-age=86400',
       });
-      res.end(fs.readFileSync(iconPath));
+      res.end(fs.readFileSync(assetPath));
       return;
     }
   }
