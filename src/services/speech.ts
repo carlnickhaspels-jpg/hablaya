@@ -445,30 +445,42 @@ export async function playAudio(text: string): Promise<void> {
 
   if (Platform.OS === 'web' && typeof Audio !== 'undefined') {
     try {
-      // Stream directly via <audio src=…> for lowest latency.
-      // The browser starts playing as soon as the first bytes arrive
-      // instead of waiting for the entire file to download.
-      const url = `/api/tts?text=${encodeURIComponent(text)}&voice=nova`;
-      currentAudioUrl = url;
+      // iOS Safari (especially in standalone PWA mode) is unreliable with
+      // streaming MP3 via `new Audio(remoteUrl)` — the play() promise often
+      // resolves silently with no audible output. Fetching the MP3 as a
+      // Blob and creating a local blob: URL works consistently across
+      // browsers. The latency cost is ~50-200ms (11KB clip) — negligible.
+      const ttsUrl = `/api/tts?text=${encodeURIComponent(text)}&voice=nova`;
+      const response = await fetch(ttsUrl);
+      if (!response.ok) {
+        throw new Error(`TTS endpoint returned ${response.status}`);
+      }
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      currentAudioUrl = blobUrl;
 
-      const audio = new Audio(url);
+      const audio = new Audio(blobUrl);
       audio.preload = 'auto';
       currentAudioElement = audio;
 
       return new Promise<void>((resolve) => {
-        audio.onended = () => {
+        const cleanup = () => {
+          try { URL.revokeObjectURL(blobUrl); } catch {}
           currentAudioUrl = null;
           currentAudioElement = null;
+        };
+        audio.onended = () => {
+          cleanup();
           resolve();
         };
         audio.onerror = () => {
           console.warn('[TTS] Audio playback error, falling back');
-          currentAudioUrl = null;
-          currentAudioElement = null;
+          cleanup();
           playWithBrowserTTS(text).then(resolve).catch(() => resolve());
         };
         audio.play().catch((err) => {
           console.warn('[TTS] play() failed:', err);
+          cleanup();
           playWithBrowserTTS(text).then(resolve).catch(() => resolve());
         });
       });
