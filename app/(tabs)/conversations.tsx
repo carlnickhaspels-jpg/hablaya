@@ -46,7 +46,13 @@ export default function ConversationsScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
 
   const filteredScenarios = useMemo(() => {
-    if (activeFilter === 'all') return scenarios;
+    if (activeFilter === 'all') {
+      // Show lessons first (they're the absolute-beginner entry point),
+      // then the rest in their declared order.
+      const lessons = scenarios.filter((s) => s.theme === 'lesson');
+      const rest = scenarios.filter((s) => s.theme !== 'lesson');
+      return [...lessons, ...rest];
+    }
     return getScenariosByTheme(activeFilter);
   }, [activeFilter]);
 

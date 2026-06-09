@@ -346,26 +346,39 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
       }
     };
 
-    // Helper to pause/resume from outside
+    // Helper to pause/resume from outside.
+    //
+    // CRUCIAL on iOS Safari: when getUserMedia is active AND an AudioContext
+    // is running, iOS routes audio output through "voice chat mode" (low
+    // volume / earpiece). To make TTS audible during conversation mode we
+    // must suspend the AudioContext while the tutor is speaking, then
+    // resume it afterward. The mic stream itself stays open (we don't want
+    // to re-prompt for permission) but its analyser is dormant during pause.
     (startConversation as any)._pause = () => {
       pauseListening = true;
-      // Hard-reset any in-flight VAD state so we don't carry it through pause
       speaking = false;
       pendingTranscription = false;
-      // Abort any half-recorded chunk
       if (mediaRecorder && isRecording) {
         try { mediaRecorder.stop(); } catch {}
         isRecording = false;
       }
       audioChunks = [];
+      // Suspend audio graph → iOS exits voice-chat-mode → TTS plays at
+      // normal speaker volume.
+      if (audioContext && audioContext.state === 'running') {
+        audioContext.suspend().catch(() => {});
+      }
     };
     (startConversation as any)._resume = () => {
       pauseListening = false;
-      // Reset speaking state and start the post-resume cool-down
       speaking = false;
       pendingTranscription = false;
       lastVoiceAt = performance.now();
       resumeAt = performance.now();
+      // Resume audio graph so VAD can start sampling mic input again.
+      if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume().catch(() => {});
+      }
     };
 
     tick();
