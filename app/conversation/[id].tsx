@@ -27,8 +27,10 @@ import {
   getSpanishHint,
 } from '@/src/services/ai';
 import {
-  startRecording,
-  stopRecording,
+  startConversation,
+  stopConversation,
+  pauseConversation,
+  resumeConversation,
   playAudio,
   TranscriptionResult,
 } from '@/src/services/speech';
@@ -46,7 +48,13 @@ import {
   trackTranslateUsed,
 } from '@/src/services/analytics';
 
-type ConversationState = 'idle' | 'recording' | 'processing' | 'typing';
+// Hands-free conversation states:
+// - 'idle'       : session not started (mic closed)
+// - 'listening'  : session active, VAD listening for user speech
+// - 'processing' : VAD captured speech, transcribing + AI call (mic paused)
+// - 'speaking'   : tutor's TTS is playing (mic paused to avoid feedback loop)
+// - 'typing'     : user is using the text input fallback
+type ConversationState = 'idle' | 'listening' | 'processing' | 'speaking' | 'typing';
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
@@ -240,6 +248,11 @@ export default function ConversationScreen() {
     return () => clearTimeout(timeout);
   }, [messages, state]);
 
+  // Track whether the hands-free conversation session is active. We use a
+  // ref (not state) so async callbacks inside addTutorResponse see the
+  // up-to-date value without stale-closure issues.
+  const sessionActiveRef = useRef(false);
+
   const addTutorResponse = useCallback(
     async (
       allMessages: Message[],
@@ -275,18 +288,26 @@ export default function ConversationScreen() {
       }
 
       setMessages((prev) => [...prev, tutorMessage]);
-      setState('idle');
 
-      // Auto-play the tutor's response so the user hears it,
-      // then resume listening when done
+      // Switch to 'speaking' state and play TTS. The mic VAD has been
+      // paused since we entered 'processing'; it stays paused until TTS
+      // finishes so we don't hear our own voice back through the mic.
+      setState('speaking');
       try {
         await playAudio(response);
       } catch {
         // ignore TTS errors
       }
 
-      // After AI finishes speaking, briefly pulse the mic to invite reply.
-      // (We use a separate state for this hint, set below.)
+      // TTS done. If a hands-free session is still active, resume listening.
+      // Otherwise (user pressed mic to end the session, or no session was
+      // ever started — text-only mode), return to idle.
+      if (sessionActiveRef.current) {
+        resumeConversation();
+        setState('listening');
+      } else {
+        setState('idle');
+      }
       setAwaitingReply(true);
     },
     [scenario, userLevel]
@@ -330,39 +351,61 @@ export default function ConversationScreen() {
     [corrections, addTutorResponse, id]
   );
 
-  // Simple, reliable tap-to-toggle:
-  // First tap → starts recording
-  // Second tap → stops, transcribes, sends to AI
+  // Hands-free conversation toggle.
+  // - If session is OFF (idle): tap starts the session. Mic opens, VAD listens
+  //   continuously, transcripts flow into handleUserUtterance automatically.
+  // - If session is ON (listening/processing/speaking): tap STOPS the entire
+  //   session. Mic closes, any in-flight TTS keeps playing but no auto-resume.
   const handleMicPress = useCallback(async () => {
-    if (state === 'recording') {
-      // STOP recording and transcribe
-      setState('processing');
+    if (sessionActiveRef.current) {
+      // STOP session
+      sessionActiveRef.current = false;
       try {
-        const result = await stopRecording();
-        if (result && result.text && result.text.trim()) {
-          handleUserUtterance(result);
-        } else {
-          setErrorMessage('No speech detected. Try speaking louder.');
-          setState('idle');
-        }
+        await stopConversation();
       } catch (err: any) {
-        console.error('[Conversation] Recording error:', err);
-        setErrorMessage(err?.message || 'Recording failed. Please try again.');
-        setState('idle');
+        console.warn('[Conversation] stopConversation error:', err?.message);
       }
-    } else if (state === 'idle') {
-      // START recording
-      try {
-        setErrorMessage(null);
-        setAwaitingReply(false);
-        await startRecording();
-        setState('recording');
-      } catch (err: any) {
-        console.error('[Conversation] Failed to start recording:', err);
-        setErrorMessage(err?.message || 'Could not access microphone.');
-      }
+      setState('idle');
+      setAwaitingReply(false);
+      return;
     }
-  }, [state, handleUserUtterance]);
+
+    // START session
+    setErrorMessage(null);
+    setAwaitingReply(false);
+    try {
+      sessionActiveRef.current = true;
+      await startConversation({
+        onTranscript: (result) => {
+          // VAD finished a turn: pause mic immediately so the AI's reply
+          // (TTS) doesn't feed back through the mic. addTutorResponse will
+          // call resumeConversation() once TTS playback completes.
+          pauseConversation();
+          handleUserUtterance(result);
+        },
+        onError: (err) => {
+          console.error('[Conversation] VAD error:', err.message);
+          setErrorMessage(err.message || 'Microphone error.');
+          sessionActiveRef.current = false;
+          setState('idle');
+        },
+      });
+      setState('listening');
+    } catch (err: any) {
+      console.error('[Conversation] Failed to start session:', err);
+      sessionActiveRef.current = false;
+      setErrorMessage(err?.message || 'Could not access microphone.');
+      setState('idle');
+    }
+  }, [handleUserUtterance]);
+
+  // Clean up mic + audio context on unmount (user navigates away mid-session)
+  useEffect(() => {
+    return () => {
+      sessionActiveRef.current = false;
+      stopConversation().catch(() => {});
+    };
+  }, []);
 
   const handleSendText = useCallback(() => {
     const text = textInputValue.trim();
@@ -634,7 +677,7 @@ export default function ConversationScreen() {
 
           {state === 'processing' && <TypingIndicator />}
 
-          {state === 'recording' && (
+          {state === 'listening' && (
             <View style={styles.recordingIndicator}>
               <WaveformBars />
               <Text style={styles.recordingText}>Listening...</Text>
@@ -733,10 +776,10 @@ export default function ConversationScreen() {
                 </TouchableOpacity>
 
                 <MicButton
-                  isRecording={state === 'recording'}
+                  isRecording={state === 'listening' || state === 'processing' || state === 'speaking'}
                   onPress={handleMicPress}
                   awaitingReply={awaitingReply && state === 'idle'}
-                  disabled={state === 'processing'}
+                  disabled={false}
                 />
 
                 <TouchableOpacity
@@ -757,24 +800,24 @@ export default function ConversationScreen() {
 
               {/* Status text below mic */}
               <View style={styles.micStatusRow}>
-                {state === 'recording' ? (
+                {state === 'listening' ? (
                   <View style={styles.statusPill}>
                     <View style={[styles.statusDot, styles.statusDotSpeaking]} />
-                    <Text style={styles.statusPillText}>Recording — tap to send</Text>
+                    <Text style={styles.statusPillText}>Listening — speak naturally, tap mic to end</Text>
                   </View>
                 ) : state === 'processing' ? (
                   <View style={styles.statusPill}>
                     <View style={[styles.statusDot, styles.statusDotThinking]} />
                     <Text style={styles.statusPillText}>AI is thinking...</Text>
                   </View>
-                ) : awaitingReply ? (
-                  <View style={[styles.statusPill, { backgroundColor: colors.softOrange + '15', borderColor: colors.softOrange + '30' }]}>
-                    <View style={[styles.statusDot, { backgroundColor: colors.softOrange }]} />
-                    <Text style={[styles.statusPillText, { color: colors.softOrange }]}>Your turn — tap to reply</Text>
+                ) : state === 'speaking' ? (
+                  <View style={styles.statusPill}>
+                    <View style={[styles.statusDot, styles.statusDotThinking]} />
+                    <Text style={styles.statusPillText}>Tutor is speaking...</Text>
                   </View>
                 ) : (
                   <Text style={styles.micHintCenterText}>
-                    Tap mic to speak
+                    Tap mic to start a hands-free conversation
                   </Text>
                 )}
               </View>
