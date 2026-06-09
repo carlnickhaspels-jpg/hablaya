@@ -32,6 +32,7 @@ import {
   pauseConversation,
   resumeConversation,
   playAudio,
+  unlockAudio,
   TranscriptionResult,
 } from '@/src/services/speech';
 import MicButton from '@/src/components/MicButton';
@@ -357,6 +358,11 @@ export default function ConversationScreen() {
   // - If session is ON (listening/processing/speaking): tap STOPS the entire
   //   session. Mic closes, any in-flight TTS keeps playing but no auto-resume.
   const handleMicPress = useCallback(async () => {
+    // iOS: unlock audio playback for the rest of the session, NOW, while
+    // we still have fresh user-gesture context. Calling it later (after
+    // async work) would no longer have a valid gesture for iOS Safari.
+    unlockAudio();
+
     if (sessionActiveRef.current) {
       // STOP session
       sessionActiveRef.current = false;
@@ -410,6 +416,10 @@ export default function ConversationScreen() {
   const handleSendText = useCallback(() => {
     const text = textInputValue.trim();
     if (!text || state !== 'idle') return;
+
+    // iOS audio-unlock — same reason as in handleMicPress: capture the
+    // user-gesture context NOW so the AI reply audio can play later.
+    unlockAudio();
 
     Keyboard.dismiss();
 
