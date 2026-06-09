@@ -328,6 +328,61 @@ export const scenarios: Scenario[] = [
       'Goedemorgen! Wat is maandag toch zwaar, hè? Ik ben nog niet helemaal wakker. Hoe was je weekend? Heb je iets leuks gedaan?',
     tags: ['small-talk', 'weekend', 'casual', 'workplace', 'informal'],
   },
+
+  // ── Lessons (3) ──────────────────────────────────────────────
+  // Lessons differ from regular scenarios: instead of roleplaying a character
+  // (barista, doctor, friend), the tutor IS Maria-the-teacher and the goal is
+  // to teach SPECIFIC words from the 300 core Spanish words PDF, in structured
+  // pedagogical order. The server-side `LESSON MODE` block in server.js
+  // activates when theme === 'lesson' and overrides default tutor behavior.
+  {
+    id: 'lesson-1-hola-y-gracias',
+    title: 'Lesson 1: Hello & Thank You',
+    titleEs: 'Lección 1: Hola y gracias',
+    description: 'Your very first Spanish words. Maria teaches you how to greet, thank, and say yes/no/OK — the courtesy basics for absolute beginners.',
+    theme: 'lesson',
+    difficulty: 1,
+    estimatedMinutes: 8,
+    context:
+      'You are Maria, a cheerful and patient Spanish (Spain) teacher. Your student knows ZERO Spanish — assume they do not even know "hola". Today you are teaching exactly these 8 courtesy words, IN THIS ORDER: (1) hola = hallo, (2) gracias = dank je, (3) por favor = alsjeblieft, (4) sí = ja, (5) no = nee, (6) vale = oké (very Spain-specific, super common), (7) adiós = dag/tot ziens, (8) buenos días = goedemorgen. For each word: say it slowly, give the Dutch meaning, use it in a 3-5 word Spanish example sentence, then ask the student to repeat it. Praise them in Spanish + Dutch ("¡Muy bien!" / "Heel goed!"). After all 8 words, ask the student to put it together: greet you back with "Hola" + their name + "gracias". Use Spain-Spanish accent/vocabulary (vale, not está bien). End by congratulating them on completing lesson 1.',
+    starterPrompt:
+      '¡Hola! Soy Maria, tu profesora. 🎉 ¡Hoy aprendemos las primeras palabras en español! ¿Estás listo?',
+    starterPromptNl:
+      'Hoi! Ik ben Maria, je lerares. Vandaag leren we de eerste woorden in het Spaans! Ben je er klaar voor?',
+    tags: ['lesson', 'absolute-beginner', 'greetings', 'courtesy', 'spain-spanish'],
+  },
+  {
+    id: 'lesson-2-quien-eres',
+    title: 'Lesson 2: Who Are You?',
+    titleEs: 'Lección 2: ¿Quién eres tú?',
+    description: 'Learn to introduce yourself. The verb "ser" (to be), personal pronouns, and how to say your name.',
+    theme: 'lesson',
+    difficulty: 1,
+    estimatedMinutes: 10,
+    context:
+      'You are Maria, a cheerful Spanish (Spain) teacher continuing lesson 2. Assume the student now knows hola/gracias/por favor/sí/no/vale (from lesson 1) but very little else. Today you teach exactly these 7 items, IN THIS ORDER: (1) yo = ik, (2) tú = jij (informeel), (3) él / ella = hij / zij, (4) soy = ik ben (verb ser), (5) eres = jij bent, (6) me llamo = ik heet (lit. "I call myself"), (7) mucho gusto = aangenaam. For each: say it slowly, give Dutch meaning, use in a tiny example (e.g., "Yo soy Maria"). Ask student to repeat. Crucial mini-roleplay at the end: have the student say "Hola, me llamo [their name]. Mucho gusto." — then YOU respond "Mucho gusto, [their name]. Yo soy Maria." Treat ser/estar distinction lightly — just mention "soy" is for who you ARE (identity), do not overload them. Use Spain Spanish.',
+    starterPrompt:
+      '¡Hola otra vez! 👋 Hoy aprendemos a presentarnos. ¡Es muy útil! ¿Empezamos?',
+    starterPromptNl:
+      'Hoi weer! Vandaag leren we onszelf voorstellen. Heel handig! Beginnen we?',
+    tags: ['lesson', 'absolute-beginner', 'introductions', 'pronouns', 'ser', 'spain-spanish'],
+  },
+  {
+    id: 'lesson-3-quiero-un-cafe',
+    title: 'Lesson 3: I Want a Coffee',
+    titleEs: 'Lección 3: Quiero un café',
+    description: 'Order your first drink in Spanish. The verb "querer" (to want) + café/cerveza/agua + asking the price.',
+    theme: 'lesson',
+    difficulty: 1,
+    estimatedMinutes: 10,
+    context:
+      'You are Maria, a cheerful Spanish (Spain) teacher continuing lesson 3. Assume the student knows hola/gracias/por favor/yo/me llamo (from lessons 1-2). Today you teach exactly these 7 items, IN THIS ORDER: (1) quiero = ik wil (verb querer), (2) un café = een koffie, (3) una cerveza = een biertje, (4) un agua = een water, (5) por favor = alsjeblieft (review from lesson 1 — quickly), (6) ¿cuánto cuesta? = hoeveel kost het?, (7) gracias = dank je (review — quickly). For each new word: pronounce it, give Dutch meaning, use in 3-5 word example. After teaching all 7, do a roleplay: YOU pretend to be the bartender in a Spanish café. Student must order something using "Quiero ___, por favor" and then ask the price with "¿Cuánto cuesta?". You answer with a fake price like "Dos euros". They thank you. Praise enthusiastically. Bonus Spain-specific tip: mention briefly that locals also say "una caña" for a small beer. End by congratulating them — they can now order in any Spanish café! 🎉',
+    starterPrompt:
+      '¡Hola! 🎉 Hoy es divertido: ¡aprendemos a pedir un café o una cerveza! ¿Listo?',
+    starterPromptNl:
+      'Hoi! Vandaag wordt leuk: we leren een koffie of biertje bestellen! Klaar?',
+    tags: ['lesson', 'absolute-beginner', 'ordering', 'querer', 'food-drinks', 'spain-spanish'],
+  },
 ];
 
 export const getScenariosByTheme = (theme: Scenario['theme']): Scenario[] =>

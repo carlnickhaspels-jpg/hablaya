@@ -18,6 +18,7 @@ type FilterTab = 'all' | ScenarioTheme;
 
 const FILTER_TABS: { key: FilterTab; label: string }[] = [
   { key: 'all', label: 'All' },
+  { key: 'lesson', label: 'Lessons' },
   { key: 'travel', label: 'Travel' },
   { key: 'social', label: 'Social' },
   { key: 'daily-life', label: 'Daily Life' },
@@ -29,6 +30,7 @@ const THEME_ICONS: Record<ScenarioTheme, keyof typeof Ionicons.glyphMap> = {
   social: 'people-outline',
   'daily-life': 'home-outline',
   work: 'briefcase-outline',
+  lesson: 'school-outline',
 };
 
 const THEME_COLORS: Record<ScenarioTheme, string> = {
@@ -36,6 +38,7 @@ const THEME_COLORS: Record<ScenarioTheme, string> = {
   social: '#EC4899',
   'daily-life': '#F59E0B',
   work: '#8B5CF6',
+  lesson: '#1A7B72',
 };
 
 export default function ConversationsScreen() {
