@@ -289,35 +289,58 @@ async function handleTranscribe(req, res) {
             } else {
               const rawText = (data.text || '').trim();
 
-              // Filter Whisper hallucinations on silence/short audio.
-              // Whisper has well-documented "go-to" phrases it outputs
-              // when there's no real speech.
-              const hallucinations = [
-                'goodbye', 'bye', 'bye!', 'bye-bye',
-                'adios', 'adiós', 'hasta luego', 'chao', 'chau',
-                'thank you', 'thank you.', 'thanks', 'thank you for watching',
-                'gracias', 'gracias.', 'muchas gracias',
-                'subtitles by', 'subtítulos', 'subs by',
-                'music', 'música', '[música]', '(music)',
-                'see you next time', 'see you',
-                'hasta la próxima', 'nos vemos',
-                'silence', 'silencio',
-                '...', '. . .', '.', ',',
-                'you', 'yo', 'oh', 'ah', 'mm', 'hmm',
-                'okay', 'ok', 'vale',
-                'hi', 'hello', 'hola',
-              ];
+              // Filter Whisper hallucinations — but be CAREFUL: this is a
+              // Spanish-learning app for beginners, who legitimately say
+              // "hola", "gracias", "vale", "sí" etc. as their entire utterance.
+              // Old filter was too aggressive and threw those away.
+              //
+              // New strategy: combine TWO signals.
+              //   1) Definite-junk phrases (things a real user NEVER says in
+              //      this app like "thank you for watching", "subtitles by")
+              //      → filter always.
+              //   2) For ambiguous short utterances (mm, oh, ., okay) → only
+              //      filter when Whisper's own avg_logprob signals low
+              //      confidence (typically < -0.7). High confidence + short
+              //      = legitimate beginner speech, let it through.
+
+              const segments = data.segments || [];
+              const avgLogprob = segments.length > 0
+                ? segments.reduce((sum, s) => sum + (typeof s.avg_logprob === 'number' ? s.avg_logprob : 0), 0) / segments.length
+                : -10; // no segments at all → treat as silence/hallucination
 
               const lowerText = rawText.toLowerCase().replace(/[¡¿"'.!?,]/g, '').trim();
-              const isHallucination = hallucinations.some(h => lowerText === h || lowerText === h.replace(/[.!,]/g, ''));
 
-              // Also check: very short transcription with no real content is suspicious
-              const wordCount = rawText.split(/\s+/).filter(Boolean).length;
-              const isTooShort = wordCount <= 2 && rawText.length < 15;
-              const looksLikeHallucination = isHallucination || (isTooShort && hallucinations.some(h => lowerText.includes(h)));
+              // Phrases that NEVER come from a real Spanish-learner user.
+              // These are pure Whisper-on-silence artifacts. Filter regardless
+              // of confidence.
+              const definiteJunk = [
+                'thank you for watching', 'thanks for watching',
+                'subtitles by', 'subs by', 'subtítulos',
+                'music', 'música', '[música]', '(music)', '[music]',
+                'see you next time',
+                '...', '. . .',
+              ];
 
-              if (looksLikeHallucination) {
-                console.log(`[Transcribe] Filtered hallucination: "${rawText}"`);
+              // Words/phrases Whisper invents on silence — but a beginner
+              // COULD legitimately say. Only filter if confidence is low.
+              const ambiguousFillers = [
+                'mm', 'hmm', 'uh', 'um', 'oh', 'ah', 'eh',
+                'you', 'yo',  // Whisper sometimes outputs lone "yo"
+                '.', ',', 'silence', 'silencio',
+                'okay', 'ok',
+                'thank you', 'thanks',
+              ];
+
+              const isDefiniteJunk = definiteJunk.some(h => lowerText === h || lowerText.includes(h));
+
+              const isLowConfidence = avgLogprob < -0.7;
+              const isAmbiguousFiller =
+                isLowConfidence &&
+                lowerText.length < 15 &&
+                ambiguousFillers.some(h => lowerText === h);
+
+              if (isDefiniteJunk || isAmbiguousFiller) {
+                console.log(`[Transcribe] Filtered: "${rawText}" (avg_logprob: ${avgLogprob.toFixed(2)}, reason: ${isDefiniteJunk ? 'definite-junk' : 'low-conf-filler'})`);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ text: '', filtered: true, reason: 'hallucination' }));
                 resolve();
