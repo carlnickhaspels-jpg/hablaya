@@ -435,6 +435,38 @@ export function isConversationActive(): boolean {
 // if the server endpoint fails.
 
 let currentAudioElement: HTMLAudioElement | null = null;
+
+// iOS Safari blocks audio playback unless it's called inside a fresh user-
+// gesture handler. Once the user has interacted ONCE and we've played any
+// audio (even silent), iOS marks the page as "audio-unlocked" for the rest
+// of the session. Call unlockAudio() synchronously from gesture handlers
+// (mic tap, send tap, etc.) BEFORE any await — that's when the gesture
+// context is still alive.
+let audioUnlocked = false;
+const SILENT_MP3_DATA_URI =
+  'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjQ1LjEwMAAAAAAAAAAAAAAA//tQwAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAACAAACcAA1NTU1NTU1NTVVVVVVVVVVVVVqampqampqampqf39/f39/f39/f5SUlJSUlJSUlJSqqqqqqqqqqqqq//////////////8AAAA5TEFNRTMuMTAwAaUAAAAAAAAAABSAJAJAQQAB4AAAAnAFhfH+AAAAAAAAAAAAAAAAAAAA';
+
+export function unlockAudio(): void {
+  if (audioUnlocked || typeof Audio === 'undefined' || Platform.OS !== 'web') {
+    return;
+  }
+  try {
+    const silent = new Audio(SILENT_MP3_DATA_URI);
+    silent.volume = 0;
+    const p = silent.play();
+    if (p && typeof p.then === 'function') {
+      p.then(() => {
+        try { silent.pause(); } catch {}
+        audioUnlocked = true;
+        console.log('[Speech] iOS audio unlocked');
+      }).catch(() => {
+        // Failed — iOS will keep blocking. Next gesture will retry.
+      });
+    }
+  } catch {
+    // ignore
+  }
+}
 let currentAudioUrl: string | null = null;
 
 export async function playAudio(text: string): Promise<void> {
