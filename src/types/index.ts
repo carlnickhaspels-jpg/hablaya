@@ -15,7 +15,7 @@ export type CorrectionType = 'grammar' | 'vocabulary' | 'pronunciation';
 
 export type CorrectionSeverity = 'minor' | 'moderate' | 'important';
 
-export type ScenarioTheme = 'travel' | 'social' | 'daily-life' | 'work';
+export type ScenarioTheme = 'travel' | 'social' | 'daily-life' | 'work' | 'lesson';
 
 export interface User {
   id: string;
