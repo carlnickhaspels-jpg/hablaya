@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 const auth = require('./auth');
+const crypto = require('crypto');
+const { mintLiveKitToken, normalizeTokenRequest } = require('./livekitToken');
 
 const PORT = process.env.PORT || 3000;
 const DIST_DIR = path.join(__dirname, 'dist');
@@ -866,6 +868,45 @@ async function handleFeedback(req, res) {
   res.end(JSON.stringify({ ok: true }));
 }
 
+// ── LiveKit token endpoint (voice session with explicit agent dispatch) ─────
+async function handleLiveKitToken(req, res) {
+  const jsonOut = (status, data) => {
+    res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(data));
+  };
+
+  const authToken = auth.getTokenFromRequest(req);
+  const user = await auth.verifyToken(authToken);
+  if (!user) return jsonOut(401, { error: 'Not authenticated' });
+
+  const LIVEKIT_URL = process.env.LIVEKIT_URL;
+  const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
+  const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
+  if (!LIVEKIT_URL || !LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+    return jsonOut(503, { error: 'Voice not configured' });
+  }
+
+  let body;
+  try { body = await auth.readJsonBody(req); }
+  catch { return jsonOut(400, { error: 'Invalid JSON' }); }
+
+  const { level, scenario, greeting } = normalizeTokenRequest(body, user.level);
+  const metadata = JSON.stringify({ level, scenario, greeting, userName: user.name });
+
+  const room = `hablaya-${user.id}-${crypto.randomBytes(4).toString('hex')}`;
+  const token = mintLiveKitToken({
+    apiKey: LIVEKIT_API_KEY,
+    apiSecret: LIVEKIT_API_SECRET,
+    identity: `user-${user.id}`,
+    name: user.name,
+    room,
+    agentName: 'hablaya-tutor',
+    agentMetadata: metadata,
+  });
+
+  return jsonOut(200, { token, url: LIVEKIT_URL, room });
+}
+
 // ── Public config endpoint (returns env-controlled flags to client) ─────────
 function handleConfig(req, res) {
   res.writeHead(200, {
@@ -967,6 +1008,12 @@ const server = http.createServer(async (req, res) => {
   // ─── Feedback ──────────────────────────────────────────────────
   if (req.method === 'POST' && req.url === '/api/feedback') {
     await handleFeedback(req, res);
+    return;
+  }
+
+  // ─── LiveKit voice token ───────────────────────────────────────
+  if (req.method === 'POST' && req.url === '/api/livekit/token') {
+    await handleLiveKitToken(req, res);
     return;
   }
 
