@@ -73,7 +73,13 @@ def select_stt(cfg: VoiceConfig) -> lk_stt.STT:
             ]
             if extra:
                 kwargs["secondary_languages"] = extra
-        log.info("select_stt provider=elevenlabs language=%s extra=%s", language, ",".join(extra) or "-")
+        kwargs["server_vad"] = {"vad_silence_threshold_secs": cfg.VOICE_STT_STILTE_SECONDEN}
+        log.info(
+            "select_stt provider=elevenlabs language=%s extra=%s stilte_s=%s",
+            language,
+            ",".join(extra) or "-",
+            cfg.VOICE_STT_STILTE_SECONDEN,
+        )
         return elevenlabs.STT(model="scribe_v2_realtime", api_key=eleven_key, **kwargs)
 
     if not openai_key:

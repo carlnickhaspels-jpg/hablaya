@@ -171,6 +171,7 @@ def test_config_defaults(monkeypatch):
     assert cfg.VOICE_STT == "elevenlabs"
     assert cfg.VOICE_STT_TAAL == "es"
     assert cfg.VOICE_STT_EXTRA_TALEN == "nl"
+    assert cfg.VOICE_STT_STILTE_SECONDEN == 1.0
     assert cfg.VOICE_TTS == "elevenlabs"
     assert cfg.VOICE_TTS_ELEVENLABS_MODEL == "eleven_v4_turbo"
     assert cfg.VOICE_LLM_MODEL == "gpt-4o-mini"
@@ -203,6 +204,8 @@ def test_select_stt_spanish_with_dutch(monkeypatch):
     select_stt(VoiceConfig())
     assert seen["language_code"] == "es"
     assert seen["secondary_languages"] == ["nl"]
+    # zonder server-VAD komt er nooit een definitieve zin (commit_strategy=manual)
+    assert seen["server_vad"] == {"vad_silence_threshold_secs": 1.0}
 
     seen.clear()
     monkeypatch.setenv("VOICE_STT_TAAL", "auto")

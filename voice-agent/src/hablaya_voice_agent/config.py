@@ -34,6 +34,10 @@ class VoiceConfig(BaseSettings):
     VOICE_STT_TAAL: str = "es"
     # Komma-gescheiden extra talen naast de hoofdtaal. Geldt alleen voor ElevenLabs en niet bij `auto`.
     VOICE_STT_EXTRA_TALEN: str = "nl"
+    # Seconden stilte waarna ElevenLabs een zin zelf definitief maakt (server-VAD, commit_strategy=vad).
+    # Zonder server-VAD rondt de plugin alleen af op een expliciete flush, en die komt in deze opzet niet:
+    # dan blijft elke zin "tussentijds" en antwoordt de tutor nooit (iPhone-test 2026-10-18).
+    VOICE_STT_STILTE_SECONDEN: float = 1.0
 
     # Stem: elevenlabs | openai. Zonder ElevenLabs-sleutel of ELEVENLABS_VOICE_ID wordt het openai.
     VOICE_TTS: str = "elevenlabs"
