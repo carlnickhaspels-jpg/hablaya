@@ -26,6 +26,7 @@
     "expo-speech": "^55.0.9",
     "expo-status-bar": "~3.0.9",
     "jsonwebtoken": "^9.0.3",
+    "livekit-client": "^2.23.0",
     "pg": "^8.20.0",
     "posthog-js": "^1.372.8",
     "react": "19.1.0",
