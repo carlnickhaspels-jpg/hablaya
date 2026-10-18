@@ -57,7 +57,7 @@ function adaptUser(raw: RawUser): User {
   };
 }
 
-async function authedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+export async function authedFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const token = await loadStoredToken();
   return fetch(url, {
     ...options,

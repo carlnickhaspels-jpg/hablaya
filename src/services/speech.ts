@@ -1,5 +1,6 @@
 import * as Speech from 'expo-speech';
 import { Platform } from 'react-native';
+import { authedFetch } from './authApi';
 
 /**
  * Speech service: MediaRecorder + Whisper for transcription, plus continuous
@@ -99,7 +100,7 @@ async function beginRecording(stream: MediaStream): Promise<void> {
     const audioBlob = new Blob(audioChunks, { type: activeMimeType || 'audio/webm' });
 
     try {
-      const response = await fetch('/api/transcribe', {
+      const response = await authedFetch('/api/transcribe', {
         method: 'POST',
         body: audioBlob,
         headers: { 'Content-Type': activeMimeType || 'audio/webm' },
@@ -483,7 +484,7 @@ export async function playAudio(text: string): Promise<void> {
       // Blob and creating a local blob: URL works consistently across
       // browsers. The latency cost is ~50-200ms (11KB clip) — negligible.
       const ttsUrl = `/api/tts?text=${encodeURIComponent(text)}&voice=nova`;
-      const response = await fetch(ttsUrl);
+      const response = await authedFetch(ttsUrl);
       if (!response.ok) {
         throw new Error(`TTS endpoint returned ${response.status}`);
       }

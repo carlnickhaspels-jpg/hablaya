@@ -879,15 +879,75 @@ function handleConfig(req, res) {
   }));
 }
 
+// ── AI endpoint guard (JWT + simple per-user rate limit) ────────────────────
+// These routes spend the OpenAI key, so only signed-in users may call them.
+const AI_PATHS = new Set([
+  '/api/transcribe',
+  '/api/tutor',
+  '/api/hint',
+  '/api/translate',
+  '/api/improve',
+  '/api/tts',
+]);
+const AI_RATE_LIMIT = 60;            // requests per user per window
+const AI_RATE_WINDOW_MS = 60 * 1000; // 1 minute
+const aiRateBuckets = new Map();     // userId -> { count, windowStart }
+
+function isAiRateLimited(userId) {
+  const now = Date.now();
+  const bucket = aiRateBuckets.get(userId);
+  if (!bucket || now - bucket.windowStart >= AI_RATE_WINDOW_MS) {
+    aiRateBuckets.set(userId, { count: 1, windowStart: now });
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > AI_RATE_LIMIT;
+}
+
+// Drop expired buckets so the map doesn't grow forever.
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, bucket] of aiRateBuckets) {
+    if (now - bucket.windowStart >= AI_RATE_WINDOW_MS) aiRateBuckets.delete(userId);
+  }
+}, AI_RATE_WINDOW_MS).unref();
+
+// Returns true if the request may continue; otherwise sends 401/429.
+async function requireAiUser(req, res) {
+  const user = await auth.verifyToken(auth.getTokenFromRequest(req));
+  if (!user) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not authenticated' }));
+    return false;
+  }
+  if (isAiRateLimited(user.id)) {
+    res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' });
+    res.end(JSON.stringify({ error: 'Too many requests. Please wait a minute.' }));
+    return false;
+  }
+  return true;
+}
+
 // ── Main server ─────────────────────────────────────────────────────────────
+// The PWA calls /api/* on its own origin, so it needs no CORS headers.
+// Only echo the app's own public origin (APP_URL); everything else gets none.
+const ALLOWED_ORIGIN = (process.env.APP_URL || '').replace(/\/+$/, '');
+
 const server = http.createServer(async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (ALLOWED_ORIGIN && req.headers.origin === ALLOWED_ORIGIN) {
+    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  if (AI_PATHS.has(req.url.split('?')[0]) && !(await requireAiUser(req, res))) {
     return;
   }
 

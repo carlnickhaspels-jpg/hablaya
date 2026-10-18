@@ -1,4 +1,5 @@
 import { Message, Correction, Scenario, CorrectionType, CorrectionSeverity } from '../types';
+import { authedFetch } from './authApi';
 
 /**
  * ─────────────────────────────────────────────────────────────────────────────
@@ -331,7 +332,7 @@ export async function generateTutorResponse(
 ): Promise<{ response: string; corrections: Correction[] }> {
   // Try the real AI tutor endpoint first
   try {
-    const apiResponse = await fetch('/api/tutor', {
+    const apiResponse = await authedFetch('/api/tutor', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -421,7 +422,7 @@ export async function getSpanishHint(
   scenario?: Scenario
 ): Promise<string> {
   try {
-    const res = await fetch('/api/hint', {
+    const res = await authedFetch('/api/hint', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -449,7 +450,7 @@ export async function translateText(
   context?: string
 ): Promise<TranslationResult> {
   try {
-    const res = await fetch('/api/translate', {
+    const res = await authedFetch('/api/translate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, context }),
@@ -474,7 +475,7 @@ export interface ImprovedSentence {
 
 export async function improveSentence(text: string): Promise<ImprovedSentence> {
   try {
-    const res = await fetch('/api/improve', {
+    const res = await authedFetch('/api/improve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
