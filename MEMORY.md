@@ -59,3 +59,8 @@
 **What was decided:** Het echte gespreksscherm praat via de LiveKit-spraakagent (Python-dienst hablaya-voice-agent) in plaats van de oude route (client-VAD + /api/transcribe + /api/tutor + /api/tts). Getypte berichten gaan naar dezelfde agent. Het eindscherm toont alleen echte gegevens. Statusteksten in het Nederlands.
 **Why:** De oude route bleef op de iPhone stil (drie pogingen mislukt, zie ERRORS.md) en was traag (drie losse stappen na elkaar). De proef op /voice-test werkte op de iPhone: Maria hoorbaar, 3,6-4,2 s per beurt nog zonder ElevenLabs.
 **What was rejected:** Terugvallen op de oude spraakroute (werkt niet op iPhone); typen via de oude /api/tutor-route (dan zit de getypte zin niet in Maria's geheugen); de vaste uitspraakscore van 78 tonen (misleidend voor testers).
+
+## 2026-10-18, De tutor heet Carlos (mannenstem)
+**What was decided:** De tutor heet voortaan Carlos en spreekt met de door Carl gekozen ElevenLabs-mannenstem (stem-ID o0SveC0zgHFuCsEO3vHR). Naam en grammatica aangepast in de lesmodus (server.js en voice-agent/tutor_prompt.py), de lesscenario's ("Soy Carlos, tu profesor" / "Ik ben Carlos, je leraar") en de statusteksten van het gespreksscherm.
+**Why:** Carl koos een mannenstem; een vrouwennaam (Maria) met een mannenstem klopt niet.
+**What was rejected:** Maria houden met een vrouwenstem (Carl wilde de mannenstem); Maria houden met de mannenstem (inconsistent). Rollen in oefenscenario's (zoals de vriendin Mariana) zijn niet hernoemd: dat zijn personages, niet de tutor.

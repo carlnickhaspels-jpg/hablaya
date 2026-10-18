@@ -22,7 +22,6 @@ import { getScenarioById } from '@/src/constants/scenarios';
 import { useApp } from '@/src/contexts/AppContext';
 import {
   getInitialGreeting,
-  generatePronunciationFeedback,
   getSpanishHint,
 } from '@/src/services/ai';
 import { playAudio, unlockAudio } from '@/src/services/speech';
@@ -381,7 +380,7 @@ export default function ConversationScreen() {
   }, [scenario, userLevel, handleTranscript, dropSession]);
 
   // Mic toggle.
-  // - No session: tap starts a LiveKit session (mic opens, Maria greets and listens).
+  // - No session: tap starts a LiveKit session (mic opens, Carlos greets and listens).
   // - Session running: tap stops it.
   const handleMicPress = useCallback(() => {
     // iOS: unlock audio playback NOW, while the user-gesture context is alive.
@@ -441,7 +440,7 @@ export default function ConversationScreen() {
     if (!text) return;
 
     // iOS audio-unlock: capture the user-gesture context NOW so the session
-    // (if it has to start) and Maria's reply audio are allowed to play.
+    // (if it has to start) and Carlos's reply audio are allowed to play.
     unlockAudio();
 
     Keyboard.dismiss();
@@ -743,7 +742,7 @@ export default function ConversationScreen() {
                 <Ionicons name="close" size={18} color={colors.coral} />
               </TouchableOpacity>
             </View>
-            {/permission|microfoon/i.test(errorMessage) && (
+            {/permission|toegang tot de microfoon/i.test(errorMessage) && (
               <View style={styles.errorHelp}>
                 <Text style={styles.errorHelpTitle}>How to fix on iPhone:</Text>
                 <Text style={styles.errorHelpStep}>
@@ -852,12 +851,12 @@ export default function ConversationScreen() {
                 ) : state === 'thinking' ? (
                   <View style={styles.statusPill}>
                     <View style={[styles.statusDot, styles.statusDotThinking]} />
-                    <Text style={styles.statusPillText}>Maria denkt na...</Text>
+                    <Text style={styles.statusPillText}>Carlos denkt na...</Text>
                   </View>
                 ) : state === 'speaking' ? (
                   <View style={styles.statusPill}>
                     <View style={[styles.statusDot, styles.statusDotThinking]} />
-                    <Text style={styles.statusPillText}>Maria praat...</Text>
+                    <Text style={styles.statusPillText}>Carlos praat...</Text>
                   </View>
                 ) : (
                   <Text style={styles.micHintCenterText}>

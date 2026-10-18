@@ -312,7 +312,7 @@ export function startVoiceSession(options: VoiceSessionOptions): VoiceSession {
 
   const sendText = async (text: string): Promise<void> => {
     if (stopped || room.state !== ConnectionState.Connected) {
-      throw new Error('Niet verbonden met Maria. Tik op de microfoon om opnieuw te verbinden.');
+      throw new Error('Niet verbonden met Carlos. Tik op de microfoon om opnieuw te verbinden.');
     }
     try {
       await room.localParticipant.sendText(text, { topic: CHAT_TOPIC });

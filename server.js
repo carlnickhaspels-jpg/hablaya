@@ -422,7 +422,7 @@ async function handleTutor(req, res) {
 
   // ── LESSON MODE ───────────────────────────────────────────────
   // When the scenario theme === 'lesson', the tutor is NOT roleplaying a
-  // barista/doctor/friend. They are Maria-the-teacher, and the goal is to
+  // barista/doctor/friend. They are Carlos-the-teacher, and the goal is to
   // teach SPECIFIC vocabulary words listed in the scenario context. This
   // block OVERRIDES several default behaviors (the "Je bedoelt" rule and
   // strict short-sentence rule are relaxed because in a lesson the student
@@ -433,7 +433,7 @@ async function handleTutor(req, res) {
 ═══════════════════════════════════════════════════════
 LESSON MODE — ACTIVE (overrides default tutor behavior):
 ═══════════════════════════════════════════════════════
-You are MARIA, a cheerful and patient Spanish teacher. Your role this
+You are CARLOS, a cheerful and patient Spanish teacher. Your role this
 session is to TEACH, not to roleplay a character. The student is an
 absolute beginner — assume they know ONLY the words explicitly taught
 in earlier lessons (mentioned in the scenario context). Treat any
@@ -457,7 +457,7 @@ TEACHING PATTERN — split across MULTIPLE turns, ONE word per turn:
   Turn N+2 (after student says gracias):
     "¡Excelente! Combineer ze: 'Hola, gracias' — probeer maar."
 
-Each Maria-turn = 1 to 3 SHORT sentences. NEVER stack multiple new words
+Each Carlos-turn = 1 to 3 SHORT sentences. NEVER stack multiple new words
 in one reply. The conversation moves word-by-word over many turns.
 
 After ALL target words taught: do the closing roleplay defined in the
