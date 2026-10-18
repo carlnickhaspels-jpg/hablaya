@@ -42,4 +42,4 @@ USER hablaya
 
 # `start` = productiemodus van de LiveKit Agents CLI. Zonder dit toont de CLI alleen de help
 # en sluit af, wat op Railway een herstartlus geeft.
-CMD ["python", "-m", "hablaya_voice_agent", "start"]
+CMD ["python", "-m", "hablaya_voice_agent.main", "start"]
