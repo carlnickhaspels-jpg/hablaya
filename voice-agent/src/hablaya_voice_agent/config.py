@@ -24,9 +24,11 @@ class VoiceConfig(BaseSettings):
     ELEVENLABS_API_KEY: SecretStr = SecretStr("")
     ELEVENLABS_VOICE_ID: str = ""
 
-    # Spraakherkenning: elevenlabs (Scribe v2 realtime, streamend) | openai (gpt-4o-transcribe,
-    # achter de VAD). Ontbreekt de ElevenLabs-sleutel, dan valt de agent terug op openai.
-    VOICE_STT: str = "elevenlabs"
+    # Spraakherkenning: openai (gpt-4o-transcribe, achter de VAD) | elevenlabs (Scribe v2 realtime).
+    # Standaard openai: ElevenLabs Scribe gokte bij "auto" Bulgaars en vertaalde met Nederlands als
+    # extra taal het Spaans van de leerling naar het Nederlands (iPhone-tests 2026-10-18). OpenAI
+    # verstond Carl goed en snel genoeg (1,5-3,2 s per beurt met de ElevenLabs-stem).
+    VOICE_STT: str = "openai"
     # Hoofdtaal van de herkenner. `auto` liet ElevenLabs zelf raden en gaf bij korte zinnen met een
     # Nederlands accent soms Bulgaars (iPhone-test 2026-10-18). Daarom vast Spaans, met de talen uit
     # VOICE_STT_EXTRA_TALEN erbij (ElevenLabs `secondary_languages`, alleen Scribe v2 realtime), zodat
@@ -42,6 +44,10 @@ class VoiceConfig(BaseSettings):
     # Stem: elevenlabs | openai. Zonder ElevenLabs-sleutel of ELEVENLABS_VOICE_ID wordt het openai.
     VOICE_TTS: str = "elevenlabs"
     VOICE_TTS_ELEVENLABS_MODEL: str = "eleven_v4_turbo"
+    # Geluidsformaat van de ElevenLabs-stem. De plugin-standaard mp3_22050_32 (32 kbps mp3, daarna
+    # omgerekend naar 24 kHz) gaf hoorbare kraakjes; pcm_24000 is onverpakt en sluit aan op de
+    # 24 kHz van het OpenAI-vangnet, dus geen omrekening.
+    VOICE_TTS_ELEVENLABS_FORMAAT: str = "pcm_24000"
 
     # Taalmodel (OpenAI).
     VOICE_LLM_MODEL: str = "gpt-4o-mini"

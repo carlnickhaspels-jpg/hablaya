@@ -40,12 +40,12 @@ def load_plugins() -> None:
 def select_stt(cfg: VoiceConfig) -> lk_stt.STT:
     """Kies de spraakherkenner met `VOICE_STT`.
 
-    - `elevenlabs` (standaard): Scribe v2 realtime, streamend. Taal volgens `VOICE_STT_TAAL`.
-    - `openai`: gpt-4o-transcribe; niet streamend, daarom zet LiveKit er de VAD voor.
+    - `openai` (standaard): gpt-4o-transcribe; niet streamend, daarom zet LiveKit er de VAD voor.
+    - `elevenlabs`: Scribe v2 realtime, streamend. Taal volgens `VOICE_STT_TAAL`.
 
     Ontbreekt de ElevenLabs-sleutel, dan volgt OpenAI (met een waarschuwing).
     """
-    choice = cfg.VOICE_STT.strip().lower() or "elevenlabs"
+    choice = cfg.VOICE_STT.strip().lower() or "openai"
     language = cfg.VOICE_STT_TAAL.strip().lower() or "auto"
     eleven_key = cfg.ELEVENLABS_API_KEY.get_secret_value()
     openai_key = cfg.OPENAI_API_KEY.get_secret_value()
@@ -137,6 +137,7 @@ def select_tts(cfg: VoiceConfig) -> lk_tts.TTS:
                     voice_id=voice_id,
                     model=cfg.VOICE_TTS_ELEVENLABS_MODEL,
                     api_key=eleven_key,
+                    encoding=cfg.VOICE_TTS_ELEVENLABS_FORMAAT,
                 )
             )
             names.append("elevenlabs")

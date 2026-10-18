@@ -168,12 +168,13 @@ def test_config_defaults(monkeypatch):
     for name in VoiceConfig.model_fields:
         monkeypatch.delenv(name, raising=False)
     cfg = VoiceConfig()
-    assert cfg.VOICE_STT == "elevenlabs"
+    assert cfg.VOICE_STT == "openai"
     assert cfg.VOICE_STT_TAAL == "es"
     assert cfg.VOICE_STT_EXTRA_TALEN == "nl"
     assert cfg.VOICE_STT_STILTE_SECONDEN == 1.0
     assert cfg.VOICE_TTS == "elevenlabs"
     assert cfg.VOICE_TTS_ELEVENLABS_MODEL == "eleven_v4_turbo"
+    assert cfg.VOICE_TTS_ELEVENLABS_FORMAAT == "pcm_24000"
     assert cfg.VOICE_LLM_MODEL == "gpt-4o-mini"
     assert cfg.VOICE_LLM_TEMPERATURE == 0.8
     assert cfg.VOICE_LLM_MAX_TOKENS == 250
@@ -200,6 +201,7 @@ def test_select_stt_spanish_with_dutch(monkeypatch):
     for name in VoiceConfig.model_fields:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ELEVENLABS_API_KEY", "test")
+    monkeypatch.setenv("VOICE_STT", "elevenlabs")  # niet meer de standaard, wel nog ondersteund
 
     select_stt(VoiceConfig())
     assert seen["language_code"] == "es"
@@ -219,3 +221,28 @@ def test_config_reads_env(monkeypatch):
     cfg = VoiceConfig()
     assert cfg.VOICE_LLM_MAX_TOKENS == 100
     assert cfg.VOICE_ONDERBREEK_WOORDEN == 2
+
+
+def test_select_tts_elevenlabs_uses_pcm_24000(monkeypatch):
+    from livekit.plugins import elevenlabs
+
+    from hablaya_voice_agent.pipeline import select_tts
+
+    seen: dict = {}
+
+    class FakeTTS:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+    monkeypatch.setattr(elevenlabs, "TTS", FakeTTS)
+    for name in VoiceConfig.model_fields:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test")
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "voice")
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    try:
+        select_tts(VoiceConfig())
+    except Exception:
+        pass  # de FallbackAdapter mag over de nep-TTS vallen; het gaat om de meegegeven opties
+    # mp3_22050_32 (plugin-standaard) gaf kraakjes; pcm_24000 voorkomt inpakken en omrekenen
+    assert seen.get("encoding") == "pcm_24000"

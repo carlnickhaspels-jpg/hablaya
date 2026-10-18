@@ -64,3 +64,13 @@
 **What was decided:** De tutor heet voortaan Carlos en spreekt met de door Carl gekozen ElevenLabs-mannenstem (stem-ID o0SveC0zgHFuCsEO3vHR). Naam en grammatica aangepast in de lesmodus (server.js en voice-agent/tutor_prompt.py), de lesscenario's ("Soy Carlos, tu profesor" / "Ik ben Carlos, je leraar") en de statusteksten van het gespreksscherm.
 **Why:** Carl koos een mannenstem; een vrouwennaam (Maria) met een mannenstem klopt niet.
 **What was rejected:** Maria houden met een vrouwenstem (Carl wilde de mannenstem); Maria houden met de mannenstem (inconsistent). Rollen in oefenscenario's (zoals de vriendin Mariana) zijn niet hernoemd: dat zijn personages, niet de tutor.
+
+## 2026-10-18, Spraakherkenning via OpenAI, stem via ElevenLabs (pcm_24000)
+**What was decided:** De spraakagent herkent spraak met OpenAI gpt-4o-transcribe (Spaans) en spreekt met de ElevenLabs-mannenstem van Carlos, in het formaat pcm_24000. Vastgelegd als standaard in voice-agent/config.py (VOICE_STT=openai, VOICE_TTS_ELEVENLABS_FORMAAT=pcm_24000).
+**Why:** ElevenLabs Scribe gokte bij "auto" Bulgaars, vertaalde met Nederlands als extra taal het Spaans naar het Nederlands, en gaf zonder server-VAD nooit een definitieve zin. OpenAI verstond Carl goed: 1,5-3,2 s per beurt met de ElevenLabs-stem (iPhone-test 2026-10-18). Het plugin-standaardformaat mp3_22050_32 gaf hoorbare kraakjes.
+**What was rejected:** ElevenLabs-herkenning (zie boven); Deepgram (beste voor Spaans+Nederlands door elkaar, maar een nieuw account; later te heroverwegen); OpenAI-stem (veel trager: 1,3-2,4 s tot eerste geluid tegen 0,15-0,2 s).
+
+## 2026-10-18, Later te bouwen (gekozen door Carl)
+**What was decided:** Op de lijst voor later: correctie-intensiteit die Carlos echt volgt, spreeksnelheid, echte privacy- en voorwaardenpagina's (tekst van Carl of een jurist), en de app-teksten in het Nederlands.
+**Why:** Uit de controle van het profielscherm bleek dat deze instellingen nu niets doen; Carl wil ze op termijn werkend hebben.
+**What was rejected:** Niets; de overige niet-werkende instellingen bespreekt Carl per stuk.
