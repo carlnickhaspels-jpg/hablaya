@@ -86,3 +86,16 @@ Wrap in template literal expression: `<Text>{`¡Hola, ${userName}!`}</Text>`. Of
 Eigen Node `server.js` die `dist/` static serveert + alle `/api/*` routes hostet. Eén Railway service, één deploy, geen CORS issues (zelfde origin). PWA via Safari "Add to Home Screen" — geen App Store nodig.
 
 **Note for next time:** Voor MVPs van consumer-facing apps: PWA-first is sneller dan native iOS. Geen €99/jaar fee, geen review wait, updates direct live. Native komt pas in beeld als je écht offline support of native APIs nodig hebt.
+
+---
+
+## iOS: tutor-antwoord stil in handsfree-modus
+**What didn't work:**
+- `iOS audio blob fix`: TTS als Blob ophalen en via een blob-URL afspelen — antwoord bleef stil zolang de handsfree-microfoon openstond
+- `gesture-unlock`: bij elke tik een stil geluidje afspelen om audio te ontgrendelen — hielp niet, het probleem was geen autoplay-blokkade (bij typen met de microfoon uit speelde het antwoord wél)
+- Microfoon volledig vrijgeven tijdens het voorlezen (tracks stoppen, AudioContext sluiten) en daarna heropenen (2026-10-18, commit 91092ed) — op de iPhone nog steeds geen geluid, en zinnen kwamen slechter door
+
+**What worked:**
+De spraak-flow via LiveKit (WebRTC) laten lopen in plaats van eigen MediaRecorder + client-VAD + `<audio>`-afspelen: Python-agent `voice-agent/` (overgenomen uit falcon-platform-live/apps/voice-agent) en de testpagina `/voice-test`. Eerste iPhone-test 2026-10-18: Maria hoorbaar, 4 beurten zonder fouten, 3,6–4,2 s van einde spraak tot eerste geluid (nog op OpenAI-STT/TTS, zonder ElevenLabs).
+
+**Note for next time:** Op iOS kun je een open microfoon (getUserMedia) en afspelen via een `<audio>`-element niet betrouwbaar combineren in een PWA. Ga voor handsfree spraak meteen naar WebRTC (LiveKit), dat microfoon, echo-onderdrukking en geluidsweg samen regelt. Test iOS-audio altijd op een echte iPhone en vraag bij een geslaagde test eerst of de iPhone niet nog een oude, opgeslagen versie van de app draait ("Force Update Now" in Profiel).
