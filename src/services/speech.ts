@@ -26,6 +26,7 @@ let audioContext: AudioContext | null = null;
 let analyser: AnalyserNode | null = null;
 let vadAnimationFrame: number | null = null;
 let conversationActive = false;
+let conversationSession = 0; // bumped by stopConversation so an in-flight resume can tell it is stale
 
 function pickMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return '';
@@ -220,28 +221,37 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
   // Small grace period for audio output to actually stop
   await new Promise((r) => setTimeout(r, 300));
 
+  const MIC_CONSTRAINTS = {
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+  };
+  const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+  const session = conversationSession;
+  let micSource: MediaStreamAudioSourceNode | null = null;
+
+  // Web Audio API graph for level monitoring (also used again after each resume).
+  const connectAnalyser = (ctx: AudioContext, stream: MediaStream) => {
+    micSource = ctx.createMediaStreamSource(stream);
+    const node = ctx.createAnalyser();
+    node.fftSize = 1024;
+    node.smoothingTimeConstant = 0.5;
+    micSource.connect(node);
+    return node;
+  };
+
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    });
+    const stream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
 
     conversationStream = stream;
     conversationActive = true;
 
-    // Set up Web Audio API for level monitoring
-    const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
     audioContext = new AudioCtx();
     if (audioContext!.state === 'suspended') await audioContext!.resume();
 
-    const source = audioContext!.createMediaStreamSource(stream);
-    analyser = audioContext!.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.5;
-    source.connect(analyser);
+    analyser = connectAnalyser(audioContext!, stream);
 
     // VAD state
     let speaking = false;
@@ -258,7 +268,12 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
     const buffer = new Uint8Array(analyser.frequencyBinCount);
 
     const tick = () => {
-      if (!conversationActive || !analyser) return;
+      if (!conversationActive) return;
+      // Mic is released while paused: keep the loop alive, nothing to sample.
+      if (!analyser) {
+        vadAnimationFrame = requestAnimationFrame(tick);
+        return;
+      }
 
       // iOS Safari sometimes auto-suspends AudioContext after media playback;
       // resume it eagerly so the mic analyser keeps producing data.
@@ -349,13 +364,16 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
 
     // Helper to pause/resume from outside.
     //
-    // CRUCIAL on iOS Safari: when getUserMedia is active AND an AudioContext
-    // is running, iOS routes audio output through "voice chat mode" (low
-    // volume / earpiece). To make TTS audible during conversation mode we
-    // must suspend the AudioContext while the tutor is speaking, then
-    // resume it afterward. The mic stream itself stays open (we don't want
-    // to re-prompt for permission) but its analyser is dormant during pause.
+    // CRUCIAL on iOS Safari: while a getUserMedia capture is live, iOS keeps
+    // a capture audio session that silences (or mutes) HTMLAudioElement
+    // playback, even when the AudioContext is suspended. So while the tutor
+    // is speaking we fully release the mic (tracks stopped, AudioContext
+    // closed) and re-acquire it on resume. The VAD loop keeps running (idle)
+    // while paused. Permission is remembered by the browser for the session.
+    let resumeToken = 0; // bumped by pause/resume so an older in-flight resume gives up
+
     (startConversation as any)._pause = () => {
+      resumeToken++;
       pauseListening = true;
       speaking = false;
       pendingTranscription = false;
@@ -364,21 +382,59 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
         isRecording = false;
       }
       audioChunks = [];
-      // Suspend audio graph → iOS exits voice-chat-mode → TTS plays at
-      // normal speaker volume.
-      if (audioContext && audioContext.state === 'running') {
-        audioContext.suspend().catch(() => {});
-      }
+      // Release the mic completely (same teardown as stopConversation).
+      conversationStream?.getTracks().forEach((t) => t.stop());
+      conversationStream = null;
+      try { micSource?.disconnect(); } catch {}
+      micSource = null;
+      analyser = null;
+      const ctx = audioContext;
+      audioContext = null;
+      ctx?.close().catch(() => {});
     };
-    (startConversation as any)._resume = () => {
-      pauseListening = false;
-      speaking = false;
-      pendingTranscription = false;
-      lastVoiceAt = performance.now();
-      resumeAt = performance.now();
-      // Resume audio graph so VAD can start sampling mic input again.
-      if (audioContext && audioContext.state === 'suspended') {
-        audioContext.resume().catch(() => {});
+    (startConversation as any)._resume = async () => {
+      // Only a paused session needs to re-acquire; a second call while one is
+      // in flight just supersedes it (the older one discards its stream).
+      if (!pauseListening || !conversationActive) return;
+      const token = ++resumeToken;
+      const isStale = () =>
+        !conversationActive || token !== resumeToken || session !== conversationSession;
+
+      let stream: MediaStream | null = null;
+      let ctx: AudioContext | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
+        if (isStale()) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+
+        ctx = new AudioCtx() as AudioContext;
+        if (ctx.state === 'suspended') await ctx.resume();
+        if (isStale()) {
+          stream.getTracks().forEach((t) => t.stop());
+          ctx.close().catch(() => {});
+          return;
+        }
+
+        conversationStream = stream;
+        audioContext = ctx;
+        analyser = connectAnalyser(ctx, stream);
+        speaking = false;
+        pendingTranscription = false;
+        lastVoiceAt = performance.now();
+        resumeAt = performance.now();
+        pauseListening = false;
+      } catch (err: any) {
+        stream?.getTracks().forEach((t) => t.stop());
+        ctx?.close().catch(() => {});
+        if (isStale()) return;
+        console.warn('[Speech] Could not re-open microphone:', err?.message);
+        if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+          callbacks.onError?.(new Error('Microphone permission denied. Please allow microphone access.'));
+        } else {
+          callbacks.onError?.(new Error(err?.message || 'Could not re-open the microphone'));
+        }
       }
     };
 
@@ -406,6 +462,7 @@ export function resumeConversation(): void {
 
 export async function stopConversation(): Promise<void> {
   conversationActive = false;
+  conversationSession++; // invalidates any resume still waiting on getUserMedia
   if (vadAnimationFrame !== null) {
     cancelAnimationFrame(vadAnimationFrame);
     vadAnimationFrame = null;
