@@ -16,7 +16,7 @@ import type { FluencyLevel } from '@/src/types';
 import PickerModal, { PickerOption } from '@/src/components/PickerModal';
 import ConfirmModal from '@/src/components/ConfirmModal';
 import FeedbackModal from '@/src/components/FeedbackModal';
-import { CLIENT_VERSION, CLIENT_BUILD_AT } from '@/src/constants/build';
+import { CLIENT_VERSION, CLIENT_BUILD_AT, CLIENT_BUILD_ID } from '@/src/constants/build';
 import {
   getPreferences,
   setTutor as saveTutor,
@@ -151,10 +151,12 @@ export default function ProfileScreen() {
       .then((data) => {
         if (cancelled) return;
         setServerVersion(data.deployedAt || data.startedAt || null);
-        const serverTime = new Date(data.startedAt || data.deployedAt || 0).getTime();
-        const clientTime = new Date(CLIENT_BUILD_AT).getTime();
-        // If server is significantly newer than client (>1 min), client is stale
-        if (serverTime > clientTime + 60_000) {
+        // Stale only when both build ids are known and differ. Never in dev,
+        // never when the server reports no id.
+        const serverBuildId = typeof data.buildId === 'string' ? data.buildId : '';
+        if (__DEV__ || !serverBuildId || serverBuildId === 'dev' || !CLIENT_BUILD_ID) {
+          setVersionState('unknown');
+        } else if (serverBuildId !== CLIENT_BUILD_ID) {
           setVersionState('outdated');
         } else {
           setVersionState('up-to-date');

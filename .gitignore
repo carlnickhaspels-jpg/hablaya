@@ -37,6 +37,9 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# generated at build time (scripts/write-build-id.js)
+src/constants/buildId.generated.json
+
 # generated native folders
 /ios
 /android
