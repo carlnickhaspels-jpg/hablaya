@@ -4,6 +4,8 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "node server.js",
+    "postinstall": "node scripts/write-build-id.js || echo build-id skipped",
+    "prebuild:web": "node scripts/write-build-id.js",
     "dev": "expo start",
     "web": "expo start --web",
     "android": "expo start --android",

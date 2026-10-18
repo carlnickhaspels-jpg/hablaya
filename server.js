@@ -14,6 +14,13 @@ const POSTHOG_API_KEY = process.env.POSTHOG_API_KEY || '';
 const POSTHOG_HOST = process.env.POSTHOG_HOST || 'https://eu.i.posthog.com';
 const serverStartedAt = new Date().toISOString();
 
+// Build id written by scripts/write-build-id.js during the same deploy build
+// as the exported app bundle. 'dev' when the file is missing.
+let BUILD_ID = 'dev';
+try {
+  BUILD_ID = require('./src/constants/buildId.generated.json').buildId || 'dev';
+} catch {}
+
 // PWA / iOS home-screen meta tags injected into every index.html response
 const PWA_META_TAGS = `
   <title>HablaYa — AI Spanish Tutor</title>
@@ -1092,6 +1099,7 @@ const server = http.createServer(async (req, res) => {
     });
     res.end(JSON.stringify({
       version: process.env.RAILWAY_GIT_COMMIT_SHA || 'dev',
+      buildId: BUILD_ID,
       deployedAt: process.env.RAILWAY_DEPLOYMENT_CREATED_AT || new Date().toISOString(),
       startedAt: serverStartedAt,
     }));
