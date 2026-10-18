@@ -430,6 +430,9 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
         ctx?.close().catch(() => {});
         if (isStale()) return;
         console.warn('[Speech] Could not re-open microphone:', err?.message);
+        // The screen treats onError as end of session, so end it here too;
+        // otherwise the next mic tap hits "already active" with a dead mic.
+        stopConversation().catch(() => {});
         if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
           callbacks.onError?.(new Error('Microphone permission denied. Please allow microphone access.'));
         } else {
