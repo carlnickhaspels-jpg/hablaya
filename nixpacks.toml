@@ -5,7 +5,7 @@ nixPkgs = ["nodejs_20"]
 cmds = ["npm install"]
 
 [phases.build]
-cmds = ["npx expo export --platform web"]
+cmds = ["node scripts/write-build-id.js && npx expo export --platform web"]
 
 [start]
 cmd = "node server.js"

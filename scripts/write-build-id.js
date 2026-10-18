@@ -1,7 +1,8 @@
 // Writes the build identity shared by the app bundle and GET /api/version.
-// Runs on `npm install` (postinstall) and before `npm run build:web`, so it is
-// created in the same deploy as the exported bundle. Uses the Railway commit
-// SHA when available, otherwise a build timestamp.
+// Railway runs it in the build step (nixpacks.toml: write-build-id.js && expo
+// export), so the id is created in the same step as the bundle. It also runs on
+// `npm install` (postinstall) and `npm run build:web` (prebuild:web) for local
+// use. Uses the Railway commit SHA when available, otherwise a build timestamp.
 const fs = require('fs');
 const path = require('path');
 
