@@ -54,3 +54,8 @@
 **What was decided:** De handsfree-modus (automatisch luisteren) blijft. Tijdens het voorlezen van Maria's antwoord wordt de microfoon volledig vrijgegeven (tracks gestopt, AudioContext gesloten) en daarna automatisch opnieuw geopend.
 **Why:** Op de iPhone bleef Maria's antwoord stil zolang de microfoon openstond (getest door Carl: bij typen met de microfoon uit klonk het antwoord wel). Let op: dit gaat in tegen het besluit van 2026-04-28 (tap-to-toggle); handsfree werd op 2026-06-09 (commit 1b38d72) al teruggezet zonder dat hier vast te leggen. Carl koos op 2026-10-18 bewust voor handsfree, tot de LiveKit-versie er is.
 **What was rejected:** Terug naar tikken-om-te-praten (minder vloeiend; Carl wilde handsfree houden); alleen de AudioContext pauzeren (dat was de bestaande aanpak en bleef stil op iOS).
+
+## 2026-10-18, Gespreksscherm gaat over op de LiveKit-spraakagent
+**What was decided:** Het echte gespreksscherm praat via de LiveKit-spraakagent (Python-dienst hablaya-voice-agent) in plaats van de oude route (client-VAD + /api/transcribe + /api/tutor + /api/tts). Getypte berichten gaan naar dezelfde agent. Het eindscherm toont alleen echte gegevens. Statusteksten in het Nederlands.
+**Why:** De oude route bleef op de iPhone stil (drie pogingen mislukt, zie ERRORS.md) en was traag (drie losse stappen na elkaar). De proef op /voice-test werkte op de iPhone: Maria hoorbaar, 3,6-4,2 s per beurt nog zonder ElevenLabs.
+**What was rejected:** Terugvallen op de oude spraakroute (werkt niet op iPhone); typen via de oude /api/tutor-route (dan zit de getypte zin niet in Maria's geheugen); de vaste uitspraakscore van 78 tonen (misleidend voor testers).

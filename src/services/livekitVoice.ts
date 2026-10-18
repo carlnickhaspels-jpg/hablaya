@@ -57,6 +57,8 @@ export interface VoiceSession {
   stop(): Promise<void>;
   /** Call from a tap handler when onNeedsAudioTap(true) was reported. */
   enableAudio(): Promise<void>;
+  /** Sends typed text to the agent (same conversation as speech). Rejects when not connected. */
+  sendText(text: string): Promise<void>;
 }
 
 interface TokenResponse {
@@ -66,6 +68,8 @@ interface TokenResponse {
 }
 
 const TRANSCRIPTION_TOPIC = 'lk.transcription';
+// Topic the agent listens on for typed user input (livekit-agents TOPIC_CHAT).
+const CHAT_TOPIC = 'lk.chat';
 const ATTR_AGENT_STATE = 'lk.agent.state';
 const ATTR_SEGMENT_ID = 'lk.segment_id';
 const ATTR_TRANSCRIPTION_FINAL = 'lk.transcription_final';
@@ -121,7 +125,13 @@ export function startVoiceSession(options: VoiceSessionOptions): VoiceSession {
   if (Platform.OS !== 'web' || typeof document === 'undefined') {
     options.onState('error');
     options.onError('Spraak werkt alleen in de webversie van de app.');
-    return { stop: async () => {}, enableAudio: async () => {} };
+    return {
+      stop: async () => {},
+      enableAudio: async () => {},
+      sendText: async () => {
+        throw new Error('Spraak werkt alleen in de webversie van de app.');
+      },
+    };
   }
 
   const room = new Room();
@@ -300,6 +310,17 @@ export function startVoiceSession(options: VoiceSessionOptions): VoiceSession {
     }
   };
 
+  const sendText = async (text: string): Promise<void> => {
+    if (stopped || room.state !== ConnectionState.Connected) {
+      throw new Error('Niet verbonden met Maria. Tik op de microfoon om opnieuw te verbinden.');
+    }
+    try {
+      await room.localParticipant.sendText(text, { topic: CHAT_TOPIC });
+    } catch {
+      throw new Error('Het bericht kon niet worden verstuurd. Probeer het opnieuw.');
+    }
+  };
+
   const run = async (): Promise<void> => {
     emitState('connecting');
 
@@ -358,5 +379,5 @@ export function startVoiceSession(options: VoiceSessionOptions): VoiceSession {
 
   run().catch((err) => fail(errorText(err)));
 
-  return { stop, enableAudio };
+  return { stop, enableAudio, sendText };
 }

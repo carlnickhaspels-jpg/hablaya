@@ -22,19 +22,16 @@ import { getScenarioById } from '@/src/constants/scenarios';
 import { useApp } from '@/src/contexts/AppContext';
 import {
   getInitialGreeting,
-  generateTutorResponse,
   generatePronunciationFeedback,
   getSpanishHint,
 } from '@/src/services/ai';
+import { playAudio, unlockAudio } from '@/src/services/speech';
 import {
-  startConversation,
-  stopConversation,
-  pauseConversation,
-  resumeConversation,
-  playAudio,
-  unlockAudio,
-  TranscriptionResult,
-} from '@/src/services/speech';
+  startVoiceSession,
+  type VoiceSession,
+  type VoiceState,
+  type VoiceTranscript,
+} from '@/src/services/livekitVoice';
 import MicButton from '@/src/components/MicButton';
 import CorrectionCard from '@/src/components/CorrectionCard';
 import TranslatePopup from '@/src/components/TranslatePopup';
@@ -49,13 +46,9 @@ import {
   trackTranslateUsed,
 } from '@/src/services/analytics';
 
-// Hands-free conversation states:
-// - 'idle'       : session not started (mic closed)
-// - 'listening'  : session active, VAD listening for user speech
-// - 'processing' : VAD captured speech, transcribing + AI call (mic paused)
-// - 'speaking'   : tutor's TTS is playing (mic paused to avoid feedback loop)
-// - 'typing'     : user is using the text input fallback
-type ConversationState = 'idle' | 'listening' | 'processing' | 'speaking' | 'typing';
+// Maximum wait (ms) for the agent's greeting to finish before a queued typed
+// message is sent anyway (the agent ignores text while its greeting plays).
+const QUEUED_TEXT_MAX_WAIT_MS = 20000;
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
@@ -184,12 +177,15 @@ export default function ConversationScreen() {
   const screenTitle = scenario?.title ?? 'Free Talk';
 
   const [messages, setMessages] = useState<Message[]>([]);
-  const [corrections, setCorrections] = useState<Correction[]>([]);
-  const [state, setState] = useState<ConversationState>('idle');
+  // Corrections are no longer produced by the voice agent; kept so the summary
+  // and the inline CorrectionCard keep working (they simply get no data).
+  const [corrections] = useState<Correction[]>([]);
+  const [state, setState] = useState<VoiceState>('idle');
+  const [sessionActive, setSessionActive] = useState(false);
+  const [needsAudioTap, setNeedsAudioTap] = useState(false);
   const [duration, setDuration] = useState(0);
   const [showTextInput, setShowTextInput] = useState(false);
   const [textInputValue, setTextInputValue] = useState('');
-  const [userMessageCount, setUserMessageCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Tap-to-translate, improve, and hint UI state
@@ -199,8 +195,24 @@ export default function ConversationScreen() {
   const [hint, setHint] = useState<string | null>(null);
   const [hintLoading, setHintLoading] = useState(false);
 
-  // After AI speaks, briefly pulse the mic to invite the user's reply
-  const [awaitingReply, setAwaitingReply] = useState(false);
+  // Typed messages waiting until the agent is ready to receive them
+  const [pendingTexts, setPendingTexts] = useState<string[]>([]);
+  // True once the agent's greeting transcript has finished (or none is expected)
+  const [greetingDone, setGreetingDone] = useState(false);
+  // Message ids whose transcript is still being updated (interim)
+  const [interimIds, setInterimIds] = useState<string[]>([]);
+
+  const sessionRef = useRef<VoiceSession | null>(null);
+  // Incremented on every start/stop so callbacks of an old session are ignored
+  const sessionTokenRef = useRef(0);
+  const greetingIdRef = useRef<string>(generateId());
+  // The agent has started speaking its greeting (so a later session must not repeat it)
+  const greetingSpokenRef = useRef(false);
+  // The running session was started with a greeting and has not delivered it yet
+  const greetingPendingRef = useRef(false);
+  // `${role}:${segmentId}` -> message id
+  const segmentMapRef = useRef<Map<string, string>>(new Map());
+  const countedUserSegmentsRef = useRef<Set<string>>(new Set());
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<Date>(new Date());
@@ -224,21 +236,17 @@ export default function ConversationScreen() {
     trackConversationStart(id ?? 'free-talk', scenario?.theme);
   }, [id, scenario?.theme]);
 
-  // Load initial tutor greeting
+  // Show the greeting as text only. The agent speaks it itself once the
+  // session starts; its transcript is merged into this bubble.
   useEffect(() => {
     const greeting = getInitialGreeting(scenario, userLevel);
     const tutorMessage: Message = {
-      id: generateId(),
+      id: greetingIdRef.current,
       role: 'tutor',
       content: greeting,
       timestamp: new Date().toISOString(),
     };
-    setMessages([tutorMessage]);
-
-    // Auto-play greeting so user hears it
-    playAudio(greeting).catch(() => {
-      // Silently ignore (autoplay may be blocked until user interacts)
-    });
+    setMessages((prev) => (prev.length <= 1 ? [tutorMessage] : prev));
   }, [scenario, userLevel]);
 
   // Auto-scroll to bottom when messages change
@@ -249,176 +257,191 @@ export default function ConversationScreen() {
     return () => clearTimeout(timeout);
   }, [messages, state]);
 
-  // Track whether the hands-free conversation session is active. We use a
-  // ref (not state) so async callbacks inside addTutorResponse see the
-  // up-to-date value without stale-closure issues.
-  const sessionActiveRef = useRef(false);
-
-  const addTutorResponse = useCallback(
-    async (
-      allMessages: Message[],
-      allCorrections: Correction[],
-      meta?: { uncertainSegments?: string[]; detectedLanguage?: string }
-    ) => {
-      setState('processing');
-
-      const { response, corrections: newCorrections } = await generateTutorResponse(
-        allMessages,
-        scenario,
-        userLevel,
-        meta
-      );
-
-      const tutorMessage: Message = {
-        id: generateId(),
-        role: 'tutor',
-        content: response,
-        timestamp: new Date().toISOString(),
-      };
-
-      if (newCorrections.length > 0) {
-        const lastUserMsg = [...allMessages].reverse().find((m) => m.role === 'user');
-        if (lastUserMsg) {
-          const existing = correctionsByMessageId.current.get(lastUserMsg.id) ?? [];
-          correctionsByMessageId.current.set(lastUserMsg.id, [
-            ...existing,
-            ...newCorrections,
-          ]);
+  // Insert or update a message from a LiveKit transcript segment.
+  const handleTranscript = useCallback(
+    (transcript: VoiceTranscript) => {
+      const key = `${transcript.role}:${transcript.id}`;
+      let messageId = segmentMapRef.current.get(key);
+      if (!messageId) {
+        if (
+          transcript.role === 'tutor' &&
+          greetingPendingRef.current &&
+          !greetingSpokenRef.current
+        ) {
+          // First tutor transcript = the greeting: merge into the existing bubble
+          messageId = greetingIdRef.current;
+          greetingSpokenRef.current = true;
+        } else {
+          messageId = generateId();
         }
-        setCorrections((prev) => [...prev, ...newCorrections]);
+        segmentMapRef.current.set(key, messageId);
+      }
+      const targetId = messageId;
+
+      if (transcript.role === 'tutor' && targetId === greetingIdRef.current && transcript.final) {
+        setGreetingDone(true);
       }
 
-      setMessages((prev) => [...prev, tutorMessage]);
-
-      // Switch to 'speaking' state and play TTS. The mic VAD has been
-      // paused since we entered 'processing'; it stays paused until TTS
-      // finishes so we don't hear our own voice back through the mic.
-      setState('speaking');
-      try {
-        await playAudio(response);
-      } catch {
-        // ignore TTS errors
+      if (
+        transcript.role === 'user' &&
+        transcript.final &&
+        !countedUserSegmentsRef.current.has(key)
+      ) {
+        countedUserSegmentsRef.current.add(key);
+        trackUserMessage(id ?? 'free-talk', false);
       }
 
-      // TTS done. If a hands-free session is still active, resume listening.
-      // Otherwise (user pressed mic to end the session, or no session was
-      // ever started — text-only mode), return to idle.
-      if (sessionActiveRef.current) {
-        resumeConversation();
-        setState('listening');
-      } else {
-        setState('idle');
-      }
-      setAwaitingReply(true);
-    },
-    [scenario, userLevel]
-  );
-
-  // Handle a transcribed user utterance from VAD
-  const handleUserUtterance = useCallback(
-    async (result: TranscriptionResult) => {
-      const transcribedText = result.text?.trim();
-      if (!transcribedText) return;
-      setErrorMessage(null);
-
-      // Use Whisper confidence for pronunciation score:
-      // fewer uncertain segments = better pronunciation
-      const baseScore = 80;
-      const penalty = (result.uncertainSegments?.length || 0) * 8;
-      const score = Math.max(50, Math.min(95, baseScore - penalty));
-
-      const userMessage: Message = {
-        id: generateId(),
-        role: 'user',
-        content: transcribedText,
-        timestamp: new Date().toISOString(),
-        pronunciationScore: score,
-      };
-
-      const hasForeignWords =
-        !!result.detectedLanguage && result.detectedLanguage !== 'es';
-      trackUserMessage(id ?? 'free-talk', hasForeignWords);
-
-      setUserMessageCount((prev) => prev + 1);
+      const timestamp = new Date().toISOString();
       setMessages((prev) => {
-        const updated = [...prev, userMessage];
-        addTutorResponse(updated, corrections, {
-          uncertainSegments: result.uncertainSegments,
-          detectedLanguage: result.detectedLanguage,
-        });
-        return updated;
+        const index = prev.findIndex((m) => m.id === targetId);
+        if (index === -1) {
+          return [
+            ...prev,
+            { id: targetId, role: transcript.role, content: transcript.text, timestamp },
+          ];
+        }
+        const next = [...prev];
+        next[index] = { ...prev[index], content: transcript.text };
+        return next;
+      });
+      setInterimIds((prev) => {
+        const has = prev.includes(targetId);
+        if (transcript.final) return has ? prev.filter((x) => x !== targetId) : prev;
+        return has ? prev : [...prev, targetId];
       });
     },
-    [corrections, addTutorResponse, id]
+    [id]
   );
 
-  // Hands-free conversation toggle.
-  // - If session is OFF (idle): tap starts the session. Mic opens, VAD listens
-  //   continuously, transcripts flow into handleUserUtterance automatically.
-  // - If session is ON (listening/processing/speaking): tap STOPS the entire
-  //   session. Mic closes, any in-flight TTS keeps playing but no auto-resume.
-  const handleMicPress = useCallback(async () => {
-    // iOS: unlock audio playback for the rest of the session, NOW, while
-    // we still have fresh user-gesture context. Calling it later (after
-    // async work) would no longer have a valid gesture for iOS Safari.
+  // Forget the running session (error, disconnect or user stop).
+  const dropSession = useCallback(() => {
+    const session = sessionRef.current;
+    sessionRef.current = null;
+    sessionTokenRef.current += 1;
+    setSessionActive(false);
+    setNeedsAudioTap(false);
+    setPendingTexts([]);
+    setInterimIds([]);
+    if (session) session.stop().catch(() => {});
+  }, []);
+
+  // Start a LiveKit voice session. Must be called synchronously from a tap
+  // handler (after unlockAudio) so iOS allows audio playback.
+  const startSession = useCallback(() => {
+    setErrorMessage(null);
+    setNeedsAudioTap(false);
+    setSessionActive(true);
+    setState('connecting');
+
+    const token = sessionTokenRef.current + 1;
+    sessionTokenRef.current = token;
+    const isCurrent = () => sessionTokenRef.current === token;
+
+    // The agent greets once per conversation screen; a restart stays silent.
+    const expectGreeting = !greetingSpokenRef.current;
+    greetingPendingRef.current = expectGreeting;
+    setGreetingDone(!expectGreeting);
+
+    let ended = false;
+    const session = startVoiceSession({
+      level: userLevel,
+      scenario: scenario
+        ? {
+            id: scenario.id,
+            title: scenario.title,
+            titleEs: scenario.titleEs,
+            context: scenario.context,
+            theme: scenario.theme,
+          }
+        : undefined,
+      greeting: expectGreeting ? getInitialGreeting(scenario, userLevel) : undefined,
+      onState: (voiceState) => {
+        if (!isCurrent()) return;
+        setState(voiceState);
+        if (voiceState === 'error' || voiceState === 'idle') {
+          ended = true;
+          dropSession();
+        }
+      },
+      onTranscript: (transcript) => {
+        if (isCurrent()) handleTranscript(transcript);
+      },
+      onError: (message) => {
+        if (isCurrent()) setErrorMessage(message);
+      },
+      onNeedsAudioTap: (needed) => {
+        if (isCurrent()) setNeedsAudioTap(needed);
+      },
+    });
+    if (ended) {
+      session.stop().catch(() => {});
+    } else {
+      sessionRef.current = session;
+    }
+  }, [scenario, userLevel, handleTranscript, dropSession]);
+
+  // Mic toggle.
+  // - No session: tap starts a LiveKit session (mic opens, Maria greets and listens).
+  // - Session running: tap stops it.
+  const handleMicPress = useCallback(() => {
+    // iOS: unlock audio playback NOW, while the user-gesture context is alive.
     unlockAudio();
 
-    if (sessionActiveRef.current) {
-      // STOP session
-      sessionActiveRef.current = false;
-      try {
-        await stopConversation();
-      } catch (err: any) {
-        console.warn('[Conversation] stopConversation error:', err?.message);
-      }
+    if (sessionRef.current) {
+      dropSession();
       setState('idle');
-      setAwaitingReply(false);
       return;
     }
+    startSession();
+  }, [dropSession, startSession]);
 
-    // START session
-    setErrorMessage(null);
-    setAwaitingReply(false);
-    try {
-      sessionActiveRef.current = true;
-      await startConversation({
-        onTranscript: (result) => {
-          // VAD finished a turn: pause mic immediately so the AI's reply
-          // (TTS) doesn't feed back through the mic. addTutorResponse will
-          // call resumeConversation() once TTS playback completes.
-          pauseConversation();
-          handleUserUtterance(result);
-        },
-        onError: (err) => {
-          console.error('[Conversation] VAD error:', err.message);
-          setErrorMessage(err.message || 'Microphone error.');
-          sessionActiveRef.current = false;
-          setState('idle');
-        },
-      });
-      setState('listening');
-    } catch (err: any) {
-      console.error('[Conversation] Failed to start session:', err);
-      sessionActiveRef.current = false;
-      setErrorMessage(err?.message || 'Could not access microphone.');
-      setState('idle');
-    }
-  }, [handleUserUtterance]);
-
-  // Clean up mic + audio context on unmount (user navigates away mid-session)
+  // Stop the session when the screen is left
   useEffect(() => {
     return () => {
-      sessionActiveRef.current = false;
-      stopConversation().catch(() => {});
+      sessionTokenRef.current += 1;
+      sessionRef.current?.stop().catch(() => {});
+      sessionRef.current = null;
     };
   }, []);
 
+  // Send queued typed messages once the agent can take them: after its
+  // greeting (the agent ignores text while the greeting plays) or, as a
+  // safety net, after a maximum wait.
+  useEffect(() => {
+    if (pendingTexts.length === 0) return;
+    if (state !== 'listening' && state !== 'thinking' && state !== 'speaking') return;
+
+    const flush = () => {
+      const session = sessionRef.current;
+      if (!session) return;
+      const texts = pendingTexts;
+      setPendingTexts([]);
+      void (async () => {
+        for (const text of texts) {
+          try {
+            await session.sendText(text);
+          } catch (err: any) {
+            setErrorMessage(err?.message || 'Het bericht kon niet worden verstuurd.');
+            return;
+          }
+        }
+      })();
+    };
+
+    if (greetingDone) {
+      flush();
+      return;
+    }
+    const timeout = setTimeout(flush, QUEUED_TEXT_MAX_WAIT_MS);
+    return () => clearTimeout(timeout);
+  }, [pendingTexts, state, greetingDone]);
+
   const handleSendText = useCallback(() => {
     const text = textInputValue.trim();
-    if (!text || state !== 'idle') return;
+    if (!text) return;
 
-    // iOS audio-unlock — same reason as in handleMicPress: capture the
-    // user-gesture context NOW so the AI reply audio can play later.
+    // iOS audio-unlock: capture the user-gesture context NOW so the session
+    // (if it has to start) and Maria's reply audio are allowed to play.
     unlockAudio();
 
     Keyboard.dismiss();
@@ -428,20 +451,23 @@ export default function ConversationScreen() {
       role: 'user',
       content: text,
       timestamp: new Date().toISOString(),
-      pronunciationScore: Math.floor(Math.random() * 36) + 60,
     };
 
     trackUserMessage(id ?? 'free-talk', false);
 
     setTextInputValue('');
-    setUserMessageCount((prev) => prev + 1);
+    setMessages((prev) => [...prev, userMessage]);
+    setPendingTexts((prev) => [...prev, text]);
 
-    setMessages((prev) => {
-      const updated = [...prev, userMessage];
-      addTutorResponse(updated, corrections);
-      return updated;
-    });
-  }, [textInputValue, state, corrections, addTutorResponse, id]);
+    if (!sessionRef.current) {
+      startSession();
+    }
+  }, [textInputValue, startSession, id]);
+
+  const handleEnableAudio = useCallback(() => {
+    unlockAudio();
+    void sessionRef.current?.enableAudio();
+  }, []);
 
   const handlePlayAudio = useCallback((text: string) => {
     playAudio(text);
@@ -482,6 +508,7 @@ export default function ConversationScreen() {
 
   const handleEndSession = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
+    dropSession();
 
     trackConversationEnd(id ?? 'free-talk', duration, messages.length);
 
@@ -494,7 +521,7 @@ export default function ConversationScreen() {
         scenarioId: id ?? 'free-talk',
       },
     });
-  }, [router, messages, corrections, duration, id]);
+  }, [router, messages, corrections, duration, id, dropSession]);
 
   const renderTappableText = (text: string, isTutor: boolean) => {
     // Split into words but preserve spacing — wrap each word in a Text that opens the translate popup
@@ -540,6 +567,7 @@ export default function ConversationScreen() {
             style={[
               styles.messageBubble,
               isTutor ? styles.tutorBubble : styles.userBubble,
+              interimIds.includes(message.id) && styles.bubbleInterim,
             ]}
           >
             {renderTappableText(message.content, isTutor)}
@@ -685,12 +713,12 @@ export default function ConversationScreen() {
         >
           {messages.map((msg, idx) => renderMessage(msg, idx))}
 
-          {state === 'processing' && <TypingIndicator />}
+          {state === 'thinking' && <TypingIndicator />}
 
           {state === 'listening' && (
             <View style={styles.recordingIndicator}>
               <WaveformBars />
-              <Text style={styles.recordingText}>Listening...</Text>
+              <Text style={styles.recordingText}>Ik luister...</Text>
             </View>
           )}
         </ScrollView>
@@ -715,7 +743,7 @@ export default function ConversationScreen() {
                 <Ionicons name="close" size={18} color={colors.coral} />
               </TouchableOpacity>
             </View>
-            {errorMessage.toLowerCase().includes('permission') && (
+            {/permission|microfoon/i.test(errorMessage) && (
               <View style={styles.errorHelp}>
                 <Text style={styles.errorHelpTitle}>How to fix on iPhone:</Text>
                 <Text style={styles.errorHelpStep}>
@@ -736,6 +764,11 @@ export default function ConversationScreen() {
         )}
 
         <View style={[styles.bottomArea, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+          {needsAudioTap && (
+            <TouchableOpacity style={styles.audioButton} onPress={handleEnableAudio}>
+              <Text style={styles.audioButtonText}>Tik om geluid aan te zetten</Text>
+            </TouchableOpacity>
+          )}
           {showTextInput ? (
             <View style={styles.textInputRow}>
               <TouchableOpacity
@@ -753,16 +786,14 @@ export default function ConversationScreen() {
                 multiline={false}
                 returnKeyType="send"
                 onSubmitEditing={handleSendText}
-                editable={state === 'idle'}
               />
               <TouchableOpacity
                 onPress={handleSendText}
                 style={[
                   styles.sendButton,
-                  (!textInputValue.trim() || state !== 'idle') &&
-                    styles.sendButtonDisabled,
+                  !textInputValue.trim() && styles.sendButtonDisabled,
                 ]}
-                disabled={!textInputValue.trim() || state !== 'idle'}
+                disabled={!textInputValue.trim()}
               >
                 <Ionicons name="send" size={20} color={colors.white} />
               </TouchableOpacity>
@@ -773,36 +804,34 @@ export default function ConversationScreen() {
                 <TouchableOpacity
                   onPress={() => setShowTextInput(true)}
                   style={styles.keyboardToggle}
-                  disabled={state !== 'idle'}
                 >
                   <Ionicons
                     name="chatbubble-ellipses-outline"
                     size={24}
-                    color={state !== 'idle' ? colors.mediumGray : colors.textSecondary}
+                    color={colors.textSecondary}
                   />
-                  <Text style={[styles.keyboardToggleText, state !== 'idle' && { color: colors.mediumGray }]}>
+                  <Text style={styles.keyboardToggleText}>
                     Type
                   </Text>
                 </TouchableOpacity>
 
                 <MicButton
-                  isRecording={state === 'listening' || state === 'processing' || state === 'speaking'}
+                  isRecording={sessionActive}
                   onPress={handleMicPress}
-                  awaitingReply={awaitingReply && state === 'idle'}
                   disabled={false}
                 />
 
                 <TouchableOpacity
                   onPress={handleHintRequest}
                   style={styles.keyboardToggle}
-                  disabled={hintLoading || state !== 'idle'}
+                  disabled={hintLoading}
                 >
                   <Ionicons
                     name="bulb"
                     size={24}
-                    color={hintLoading || state !== 'idle' ? colors.mediumGray : colors.softOrange}
+                    color={hintLoading ? colors.mediumGray : colors.softOrange}
                   />
-                  <Text style={[styles.keyboardToggleText, (hintLoading || state !== 'idle') && { color: colors.mediumGray }]}>
+                  <Text style={[styles.keyboardToggleText, hintLoading && { color: colors.mediumGray }]}>
                     Hint
                   </Text>
                 </TouchableOpacity>
@@ -810,24 +839,29 @@ export default function ConversationScreen() {
 
               {/* Status text below mic */}
               <View style={styles.micStatusRow}>
-                {state === 'listening' ? (
-                  <View style={styles.statusPill}>
-                    <View style={[styles.statusDot, styles.statusDotSpeaking]} />
-                    <Text style={styles.statusPillText}>Listening — speak naturally, tap mic to end</Text>
-                  </View>
-                ) : state === 'processing' ? (
+                {state === 'connecting' ? (
                   <View style={styles.statusPill}>
                     <View style={[styles.statusDot, styles.statusDotThinking]} />
-                    <Text style={styles.statusPillText}>AI is thinking...</Text>
+                    <Text style={styles.statusPillText}>Verbinden...</Text>
+                  </View>
+                ) : state === 'listening' ? (
+                  <View style={styles.statusPill}>
+                    <View style={[styles.statusDot, styles.statusDotSpeaking]} />
+                    <Text style={styles.statusPillText}>Ik luister, praat maar</Text>
+                  </View>
+                ) : state === 'thinking' ? (
+                  <View style={styles.statusPill}>
+                    <View style={[styles.statusDot, styles.statusDotThinking]} />
+                    <Text style={styles.statusPillText}>Maria denkt na...</Text>
                   </View>
                 ) : state === 'speaking' ? (
                   <View style={styles.statusPill}>
                     <View style={[styles.statusDot, styles.statusDotThinking]} />
-                    <Text style={styles.statusPillText}>Tutor is speaking...</Text>
+                    <Text style={styles.statusPillText}>Maria praat...</Text>
                   </View>
                 ) : (
                   <Text style={styles.micHintCenterText}>
-                    Tap mic to start a hands-free conversation
+                    Tik op de microfoon om te praten
                   </Text>
                 )}
               </View>
@@ -862,6 +896,21 @@ const styles = StyleSheet.create({
   },
   flex: {
     flex: 1,
+  },
+  bubbleInterim: {
+    opacity: 0.7,
+  },
+  audioButton: {
+    backgroundColor: colors.softOrange,
+    paddingVertical: spacing.sm + 2,
+    borderRadius: borderRadius.full,
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  audioButtonText: {
+    color: colors.white,
+    fontSize: typography.sizes.sm,
+    fontWeight: typography.weights.semibold,
   },
 
   // ── Top Bar ─────────────────────────────────────────────

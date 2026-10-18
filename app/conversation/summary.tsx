@@ -110,6 +110,20 @@ export default function SummaryScreen() {
     [messages, corrections, durationSeconds]
   );
 
+  // Only show what is based on real data. The summary helper falls back to a
+  // fixed score (78) and generic tips when there is no pronunciation data or
+  // correction data (the voice agent provides neither).
+  const hasRealScore = messages.some(
+    (m) => m.role === 'user' && typeof m.pronunciationScore === 'number'
+  );
+  const hasFeedbackData = hasRealScore || corrections.length > 0;
+  const highlights = hasFeedbackData
+    ? summary.highlights
+    : summary.wordsSpoken > 0
+    ? [`You spoke ${summary.wordsSpoken} words in Spanish — great practice!`]
+    : [];
+  const focusAreas = hasFeedbackData ? summary.focusAreas : [];
+
   const formatDuration = (seconds: number): string => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -166,10 +180,12 @@ export default function SummaryScreen() {
             <Text style={styles.statLabel}>Words Spoken</Text>
           </View>
 
-          <View style={styles.statCardScore}>
-            <ScoreRing score={summary.pronunciationScore} size={80} strokeWidth={6} />
-            <Text style={styles.statLabel}>Pronunciation</Text>
-          </View>
+          {hasRealScore && (
+            <View style={styles.statCardScore}>
+              <ScoreRing score={summary.pronunciationScore} size={80} strokeWidth={6} />
+              <Text style={styles.statLabel}>Pronunciation</Text>
+            </View>
+          )}
         </View>
 
         {/* Corrections Section */}
@@ -188,13 +204,14 @@ export default function SummaryScreen() {
         )}
 
         {/* What You Did Well */}
+        {highlights.length > 0 && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Ionicons name="star-outline" size={20} color={colors.softOrange} />
             <Text style={styles.sectionTitle}>What You Did Well</Text>
           </View>
           <View style={styles.highlightCard}>
-            {summary.highlights.map((highlight, i) => (
+            {highlights.map((highlight, i) => (
               <View key={i} style={styles.highlightRow}>
                 <Ionicons
                   name="checkmark-circle"
@@ -207,14 +224,17 @@ export default function SummaryScreen() {
           </View>
         </View>
 
+        )}
+
         {/* Focus Areas */}
+        {focusAreas.length > 0 && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Ionicons name="bulb-outline" size={20} color={colors.coral} />
             <Text style={styles.sectionTitle}>Focus Areas</Text>
           </View>
           <View style={styles.highlightCard}>
-            {summary.focusAreas.map((area, i) => (
+            {focusAreas.map((area, i) => (
               <View key={i} style={styles.highlightRow}>
                 <Ionicons
                   name="arrow-forward-circle"
@@ -226,6 +246,8 @@ export default function SummaryScreen() {
             ))}
           </View>
         </View>
+
+        )}
 
         {/* Transcript Section */}
         <View style={styles.section}>
