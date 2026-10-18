@@ -169,7 +169,8 @@ def test_config_defaults(monkeypatch):
         monkeypatch.delenv(name, raising=False)
     cfg = VoiceConfig()
     assert cfg.VOICE_STT == "elevenlabs"
-    assert cfg.VOICE_STT_TAAL == "auto"
+    assert cfg.VOICE_STT_TAAL == "es"
+    assert cfg.VOICE_STT_EXTRA_TALEN == "nl"
     assert cfg.VOICE_TTS == "elevenlabs"
     assert cfg.VOICE_TTS_ELEVENLABS_MODEL == "eleven_v4_turbo"
     assert cfg.VOICE_LLM_MODEL == "gpt-4o-mini"
@@ -181,6 +182,32 @@ def test_config_defaults(monkeypatch):
     assert cfg.VOICE_ONDERBREEK_MODUS == ""
     assert cfg.OPENAI_API_KEY.get_secret_value() == ""
     assert cfg.ELEVENLABS_VOICE_ID == ""
+
+
+def test_select_stt_spanish_with_dutch(monkeypatch):
+    from livekit.plugins import elevenlabs
+
+    from hablaya_voice_agent.pipeline import select_stt
+
+    seen: dict = {}
+
+    def fake_stt(**kwargs):
+        seen.update(kwargs)
+        return "stt"
+
+    monkeypatch.setattr(elevenlabs, "STT", fake_stt)
+    for name in VoiceConfig.model_fields:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test")
+
+    select_stt(VoiceConfig())
+    assert seen["language_code"] == "es"
+    assert seen["secondary_languages"] == ["nl"]
+
+    seen.clear()
+    monkeypatch.setenv("VOICE_STT_TAAL", "auto")
+    select_stt(VoiceConfig())
+    assert "language_code" not in seen and "secondary_languages" not in seen
 
 
 def test_config_reads_env(monkeypatch):

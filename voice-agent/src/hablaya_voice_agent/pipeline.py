@@ -63,9 +63,17 @@ def select_stt(cfg: VoiceConfig) -> lk_stt.STT:
         from livekit.plugins import elevenlabs  # noqa: PLC0415
 
         kwargs: dict[str, Any] = {}
+        extra: list[str] = []
         if language != "auto":
             kwargs["language_code"] = language
-        log.info("select_stt provider=elevenlabs language=%s", language)
+            extra = [
+                t.strip().lower()
+                for t in cfg.VOICE_STT_EXTRA_TALEN.split(",")
+                if t.strip() and t.strip().lower() != language
+            ]
+            if extra:
+                kwargs["secondary_languages"] = extra
+        log.info("select_stt provider=elevenlabs language=%s extra=%s", language, ",".join(extra) or "-")
         return elevenlabs.STT(model="scribe_v2_realtime", api_key=eleven_key, **kwargs)
 
     if not openai_key:

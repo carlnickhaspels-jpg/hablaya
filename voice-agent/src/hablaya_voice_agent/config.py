@@ -27,11 +27,13 @@ class VoiceConfig(BaseSettings):
     # Spraakherkenning: elevenlabs (Scribe v2 realtime, streamend) | openai (gpt-4o-transcribe,
     # achter de VAD). Ontbreekt de ElevenLabs-sleutel, dan valt de agent terug op openai.
     VOICE_STT: str = "elevenlabs"
-    # `auto` = de herkenner bepaalt de taal zelf per uiting. De ElevenLabs-plugin (1.8.4) ondersteunt
-    # dat (zonder `language_code` staat `include_language_detection` aan). Gekozen omdat de leerling
-    # Spaans praat maar ook Nederlandse of Engelse woorden gebruikt, en de tutor die moet horen
-    # ("Je bedoelt..."). Een vaste taalcode (bv. `es`) dwingt alles naar Spaanse woorden.
-    VOICE_STT_TAAL: str = "auto"
+    # Hoofdtaal van de herkenner. `auto` liet ElevenLabs zelf raden en gaf bij korte zinnen met een
+    # Nederlands accent soms Bulgaars (iPhone-test 2026-10-18). Daarom vast Spaans, met de talen uit
+    # VOICE_STT_EXTRA_TALEN erbij (ElevenLabs `secondary_languages`, alleen Scribe v2 realtime), zodat
+    # Nederlandse woorden van de leerling ook verstaan worden ("Je bedoelt...").
+    VOICE_STT_TAAL: str = "es"
+    # Komma-gescheiden extra talen naast de hoofdtaal. Geldt alleen voor ElevenLabs en niet bij `auto`.
+    VOICE_STT_EXTRA_TALEN: str = "nl"
 
     # Stem: elevenlabs | openai. Zonder ElevenLabs-sleutel of ELEVENLABS_VOICE_ID wordt het openai.
     VOICE_TTS: str = "elevenlabs"
