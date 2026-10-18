@@ -410,7 +410,16 @@ export async function startConversation(callbacks: ConversationCallbacks): Promi
         }
 
         ctx = new AudioCtx() as AudioContext;
-        if (ctx.state === 'suspended') await ctx.resume();
+        // iOS may never settle resume() for a context created outside a tap;
+        // fail loudly after 3 s instead of leaving the session silently dead.
+        if (ctx.state === 'suspended') {
+          await Promise.race([
+            ctx.resume(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Audio could not restart. Tap the microphone to continue.')), 3000)
+            ),
+          ]);
+        }
         if (isStale()) {
           stream.getTracks().forEach((t) => t.stop());
           ctx.close().catch(() => {});
