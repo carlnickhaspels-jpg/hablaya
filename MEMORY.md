@@ -74,3 +74,8 @@
 **What was decided:** Op de lijst voor later: correctie-intensiteit die Carlos echt volgt, spreeksnelheid, echte privacy- en voorwaardenpagina's (tekst van Carl of een jurist), en de app-teksten in het Nederlands.
 **Why:** Uit de controle van het profielscherm bleek dat deze instellingen nu niets doen; Carl wil ze op termijn werkend hebben.
 **What was rejected:** Niets; de overige niet-werkende instellingen bespreekt Carl per stuk.
+
+## 2026-10-18, Tutorkeuze Carlos/María en correctie-intensiteit
+**What was decided:** De leerling kiest in het profiel de tutor (Carlos, man, of María, vrouw) en de correctie-intensiteit (alle fouten, alleen belangrijke, flow). Beide keuzes staan op het toestel (AsyncStorage, src/services/preferences.ts) en gaan mee in het token-verzoek en de dispatch-metadata naar de spraakagent. De agent past naam, geslacht (profesor/profesora, encantado/encantada, leraar/lerares), lesmodus-tekst, stem en correctieblok aan. María gebruikt ELEVENLABS_VOICE_ID_MARIA; ontbreekt die, dan de OpenAI-stem "nova" (vrouw), nooit de stem van Carlos. In het profiel zijn de rijen verborgen die niets doen (spreeksnelheid, taal, meldingen, abonnement, help, beoordeling, privacy, voorwaarden) en is "Retake Speaking Assessment" vervangen door "Change Level".
+**Why:** Simpelste werkende oplossing voor de beta: geen databasewijziging nodig en de instellingen werken nu echt, in plaats van alleen te bestaan op het scherm.
+**What was rejected:** Opslag in de database (voor nu te zwaar; keuzes op het toestel eerst, later eventueel synchroniseren); de nep-gesproken beoordeling (vervangen door een eerlijke niveauwijziging, de beoordelingsschermen zijn niet verwijderd); niet-werkende rijen laten staan (verborgen voor de beta).

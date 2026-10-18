@@ -246,3 +246,152 @@ def test_select_tts_elevenlabs_uses_pcm_24000(monkeypatch):
         pass  # de FallbackAdapter mag over de nep-TTS vallen; het gaat om de meegegeven opties
     # mp3_22050_32 (plugin-standaard) gaf kraakjes; pcm_24000 voorkomt inpakken en omrekenen
     assert seen.get("encoding") == "pcm_24000"
+
+
+# ── tutorkeuze en correctie-intensiteit ───────────────────────────────────────────────────
+def test_parse_metadata_tutor_and_correction_defaults():
+    meta = parse_metadata(json.dumps({"level": "fluido"}))
+    assert (meta.tutor, meta.correction) == ("carlos", "important")
+    assert parse_metadata("") == TutorMetadata()
+    assert TutorMetadata().tutor == "carlos" and TutorMetadata().correction == "important"
+    bogus = parse_metadata(json.dumps({"tutor": "pedro", "correction": "strict"}))
+    assert (bogus.tutor, bogus.correction) == ("carlos", "important")
+    wrong_type = parse_metadata(json.dumps({"tutor": 5, "correction": ["all"]}))
+    assert (wrong_type.tutor, wrong_type.correction) == ("carlos", "important")
+
+
+@pytest.mark.parametrize("tutor", ["carlos", "maria"])
+@pytest.mark.parametrize("correction", ["all", "important", "flow"])
+def test_parse_metadata_tutor_and_correction_values(tutor, correction):
+    meta = parse_metadata(json.dumps({"tutor": tutor, "correction": correction}))
+    assert (meta.tutor, meta.correction) == (tutor, correction)
+
+
+def test_instructions_persona_carlos_and_maria():
+    carlos = build_instructions(parse_metadata(json.dumps({"tutor": "carlos"})))
+    assert carlos.startswith(TUTOR_SYSTEM_PROMPT)
+    assert "Your name is Carlos and you are a man" in carlos
+    assert "profesor" in carlos and "encantado" in carlos and "leraar" in carlos
+    assert "profesora" not in carlos and "lerares" not in carlos
+
+    maria = build_instructions(parse_metadata(json.dumps({"tutor": "maria"})))
+    assert maria.startswith(TUTOR_SYSTEM_PROMPT)
+    assert "Your name is María and you are a woman" in maria
+    assert "profesora" in maria and "encantada" in maria and "lerares" in maria
+    assert "Your name is Carlos" not in maria
+
+
+def test_instructions_correction_block_per_setting():
+    def build(correction):
+        return build_instructions(parse_metadata(json.dumps({"correction": correction})))
+
+    all_text, important, flow = build("all"), build("important"), build("flow")
+    assert "CORRECTION INTENSITY: ALL ERRORS" in all_text
+    assert "CORRECTION INTENSITY: IMPORTANT ONLY" in important
+    assert "high-frequency beginner errors" in important
+    assert "CORRECTION INTENSITY: FLOW MODE" in flow
+    assert "recast the correct form" in flow
+    for text, others in ((all_text, ("IMPORTANT ONLY", "FLOW MODE")),
+                         (important, ("ALL ERRORS", "FLOW MODE")),
+                         (flow, ("ALL ERRORS", "IMPORTANT ONLY"))):
+        assert all(f"CORRECTION INTENSITY: {o}" not in text for o in others)
+    # zonder correctie in de metadata geldt "important"
+    assert "IMPORTANT ONLY" in build_instructions(TutorMetadata())
+
+
+def test_lesson_mode_name_follows_tutor():
+    lesson = {**SCENARIO, "theme": "lesson"}
+    carlos = build_instructions(parse_metadata(json.dumps({"scenario": lesson, "tutor": "carlos"})))
+    assert LESSON_MODE_PROMPT in carlos  # Carlos: woordelijk de constante
+    maria = build_instructions(parse_metadata(json.dumps({"scenario": lesson, "tutor": "maria"})))
+    assert "You are MARÍA, a cheerful and patient Spanish teacher." in maria
+    assert "Each María-turn" in maria
+    assert "You are CARLOS" not in maria and "Carlos-turn" not in maria
+    # de rest van de lesprompt blijft ongewijzigd
+    assert (
+        LESSON_MODE_PROMPT.replace("You are CARLOS", "You are MARÍA").replace(
+            "Each Carlos-turn", "Each María-turn"
+        )
+        in maria
+    )
+
+
+def _patch_elevenlabs_and_openai(monkeypatch, seen: dict):
+    from livekit.plugins import elevenlabs, openai
+
+    class FakeEleven:
+        def __init__(self, **kwargs):
+            seen["eleven"] = kwargs
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            seen["openai"] = kwargs
+
+    monkeypatch.setattr(elevenlabs, "TTS", FakeEleven)
+    monkeypatch.setattr(openai, "TTS", FakeOpenAI)
+    for name in VoiceConfig.model_fields:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test")
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+
+
+def _select_tts_quietly(tutor):
+    from hablaya_voice_agent.pipeline import select_tts
+
+    try:
+        select_tts(VoiceConfig(), tutor)
+    except Exception:
+        pass  # de FallbackAdapter mag over de nep-TTS vallen; het gaat om de meegegeven opties
+
+
+def test_select_tts_voice_per_tutor(monkeypatch):
+    seen: dict = {}
+    _patch_elevenlabs_and_openai(monkeypatch, seen)
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "carlos-voice")
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID_MARIA", "maria-voice")
+
+    _select_tts_quietly("carlos")
+    assert seen["eleven"]["voice_id"] == "carlos-voice"
+    assert seen["eleven"]["encoding"] == "pcm_24000"
+
+    seen.clear()
+    _select_tts_quietly("maria")
+    assert seen["eleven"]["voice_id"] == "maria-voice"
+    assert seen["eleven"]["encoding"] == "pcm_24000"
+    assert seen["openai"]["voice"] == "nova"  # vangnet blijft achter ElevenLabs
+
+
+def test_select_tts_default_tutor_is_carlos(monkeypatch):
+    from hablaya_voice_agent.pipeline import select_tts
+
+    seen: dict = {}
+    _patch_elevenlabs_and_openai(monkeypatch, seen)
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "carlos-voice")
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID_MARIA", "maria-voice")
+    try:
+        select_tts(VoiceConfig())
+    except Exception:
+        pass
+    assert seen["eleven"]["voice_id"] == "carlos-voice"
+
+
+def test_select_tts_maria_without_voice_id_uses_female_openai(monkeypatch, caplog):
+    seen: dict = {}
+    _patch_elevenlabs_and_openai(monkeypatch, seen)
+    monkeypatch.setenv("ELEVENLABS_VOICE_ID", "carlos-voice")  # alleen Carlos heeft een stem
+
+    with caplog.at_level("WARNING", logger="hablaya.voice.pipeline"):
+        _select_tts_quietly("maria")
+    assert "eleven" not in seen  # nooit de mannenstem van Carlos voor María
+    assert seen["openai"]["voice"] == "nova"
+    assert "ELEVENLABS_VOICE_ID_MARIA" in caplog.text
+
+    seen.clear()
+    _select_tts_quietly("carlos")  # Carlos blijft zijn eigen stem houden
+    assert seen["eleven"]["voice_id"] == "carlos-voice"
+
+
+def test_config_maria_voice_defaults_to_empty(monkeypatch):
+    for name in VoiceConfig.model_fields:
+        monkeypatch.delenv(name, raising=False)
+    assert VoiceConfig().ELEVENLABS_VOICE_ID_MARIA == ""

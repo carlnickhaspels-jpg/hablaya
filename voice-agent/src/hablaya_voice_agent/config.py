@@ -22,7 +22,8 @@ class VoiceConfig(BaseSettings):
     # Sleutels en stem.
     OPENAI_API_KEY: SecretStr = SecretStr("")
     ELEVENLABS_API_KEY: SecretStr = SecretStr("")
-    ELEVENLABS_VOICE_ID: str = ""
+    ELEVENLABS_VOICE_ID: str = ""  # stem van Carlos
+    ELEVENLABS_VOICE_ID_MARIA: str = ""  # stem van María; leeg = OpenAI-stem "nova" (vrouw)
 
     # Spraakherkenning: openai (gpt-4o-transcribe, achter de VAD) | elevenlabs (Scribe v2 realtime).
     # Standaard openai: ElevenLabs Scribe gokte bij "auto" Bulgaars en vertaalde met Nederlands als

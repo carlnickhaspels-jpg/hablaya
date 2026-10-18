@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,13 +18,21 @@ import { StatusBar } from 'expo-status-bar';
 
 import { colors, typography, spacing, borderRadius, shadows } from '@/src/constants/theme';
 import { Message, Correction } from '@/src/types';
-import { getScenarioById } from '@/src/constants/scenarios';
+import { getScenarioById, forTutor } from '@/src/constants/scenarios';
 import { useApp } from '@/src/contexts/AppContext';
 import {
   getInitialGreeting,
   getSpanishHint,
 } from '@/src/services/ai';
 import { playAudio, unlockAudio } from '@/src/services/speech';
+import {
+  getPreferences,
+  TUTOR_NAMES,
+  DEFAULT_TUTOR,
+  DEFAULT_CORRECTION,
+  type TutorId,
+  type CorrectionId,
+} from '@/src/services/preferences';
 import {
   startVoiceSession,
   type VoiceSession,
@@ -172,7 +180,26 @@ export default function ConversationScreen() {
   const { user } = useApp();
   const userLevel = user?.level ?? 'principiante';
 
-  const scenario = id && id !== 'free-talk' ? getScenarioById(id) : undefined;
+  // Tutor and correction choice from the profile (stored on the device).
+  const [tutor, setTutor] = useState<TutorId>(DEFAULT_TUTOR);
+  const [correction, setCorrection] = useState<CorrectionId>(DEFAULT_CORRECTION);
+  const tutorName = TUTOR_NAMES[tutor];
+  useEffect(() => {
+    let cancelled = false;
+    getPreferences().then((prefs) => {
+      if (cancelled) return;
+      setTutor(prefs.tutor);
+      setCorrection(prefs.correction);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const scenario = useMemo(
+    () => forTutor(id && id !== 'free-talk' ? getScenarioById(id) : undefined, tutor),
+    [id, tutor]
+  );
   const screenTitle = scenario?.title ?? 'Free Talk';
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -344,6 +371,8 @@ export default function ConversationScreen() {
     let ended = false;
     const session = startVoiceSession({
       level: userLevel,
+      tutor,
+      correction,
       scenario: scenario
         ? {
             id: scenario.id,
@@ -377,7 +406,7 @@ export default function ConversationScreen() {
     } else {
       sessionRef.current = session;
     }
-  }, [scenario, userLevel, handleTranscript, dropSession]);
+  }, [scenario, userLevel, tutor, correction, handleTranscript, dropSession]);
 
   // Mic toggle.
   // - No session: tap starts a LiveKit session (mic opens, Carlos greets and listens).
@@ -851,12 +880,12 @@ export default function ConversationScreen() {
                 ) : state === 'thinking' ? (
                   <View style={styles.statusPill}>
                     <View style={[styles.statusDot, styles.statusDotThinking]} />
-                    <Text style={styles.statusPillText}>Carlos denkt na...</Text>
+                    <Text style={styles.statusPillText}>{tutorName} denkt na...</Text>
                   </View>
                 ) : state === 'speaking' ? (
                   <View style={styles.statusPill}>
                     <View style={[styles.statusDot, styles.statusDotThinking]} />
-                    <Text style={styles.statusPillText}>Carlos praat...</Text>
+                    <Text style={styles.statusPillText}>{tutorName} praat...</Text>
                   </View>
                 ) : (
                   <Text style={styles.micHintCenterText}>

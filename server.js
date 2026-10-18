@@ -890,8 +890,8 @@ async function handleLiveKitToken(req, res) {
   try { body = await auth.readJsonBody(req); }
   catch { return jsonOut(400, { error: 'Invalid JSON' }); }
 
-  const { level, scenario, greeting } = normalizeTokenRequest(body, user.level);
-  const metadata = JSON.stringify({ level, scenario, greeting, userName: user.name });
+  const { level, scenario, greeting, tutor, correction } = normalizeTokenRequest(body, user.level);
+  const metadata = JSON.stringify({ level, scenario, greeting, userName: user.name, tutor, correction });
 
   const room = `hablaya-${user.id}-${crypto.randomBytes(4).toString('hex')}`;
   const token = mintLiveKitToken({

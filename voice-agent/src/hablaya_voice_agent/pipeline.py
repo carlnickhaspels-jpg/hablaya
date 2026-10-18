@@ -108,11 +108,15 @@ def select_llm(cfg: VoiceConfig) -> lk_llm.LLM:
     )
 
 
-def select_tts(cfg: VoiceConfig) -> lk_tts.TTS:
+def select_tts(cfg: VoiceConfig, tutor: str = "carlos") -> lk_tts.TTS:
     """Kies de stem met `VOICE_TTS`, met OpenAI als vangnet.
 
     Keten bij `elevenlabs`: ElevenLabs, dan OpenAI tts-1 (stem "nova"). Ontbreekt de
-    ElevenLabs-sleutel of `ELEVENLABS_VOICE_ID`, dan blijft alleen OpenAI over (met een waarschuwing).
+    ElevenLabs-sleutel of de stem-ID, dan blijft alleen OpenAI over (met een waarschuwing).
+
+    De stem-ID hangt van de tutor af: Carlos gebruikt `ELEVENLABS_VOICE_ID`, María
+    `ELEVENLABS_VOICE_ID_MARIA`. Ontbreekt die van María, dan spreekt de OpenAI-stem "nova" (vrouw)
+    en nooit de mannenstem van Carlos.
     """
     from livekit.agents import tts as lk_tts  # noqa: PLC0415
 
@@ -121,7 +125,9 @@ def select_tts(cfg: VoiceConfig) -> lk_tts.TTS:
         raise ValueError(f"onbekende VOICE_TTS {cfg.VOICE_TTS!r} (elevenlabs | openai)")
 
     eleven_key = cfg.ELEVENLABS_API_KEY.get_secret_value()
-    voice_id = cfg.ELEVENLABS_VOICE_ID.strip()
+    is_maria = tutor == "maria"
+    voice_var = "ELEVENLABS_VOICE_ID_MARIA" if is_maria else "ELEVENLABS_VOICE_ID"
+    voice_id = (cfg.ELEVENLABS_VOICE_ID_MARIA if is_maria else cfg.ELEVENLABS_VOICE_ID).strip()
     openai_key = cfg.OPENAI_API_KEY.get_secret_value()
 
     chain: list[lk_tts.TTS] = []
@@ -143,7 +149,7 @@ def select_tts(cfg: VoiceConfig) -> lk_tts.TTS:
             names.append("elevenlabs")
         else:
             log.warning(
-                "select_tts: ELEVENLABS_API_KEY of ELEVENLABS_VOICE_ID ontbreekt, OpenAI-stem wordt gebruikt"
+                "select_tts: ELEVENLABS_API_KEY of %s ontbreekt, OpenAI-stem wordt gebruikt", voice_var
             )
 
     if openai_key:

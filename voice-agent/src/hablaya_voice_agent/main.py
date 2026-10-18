@@ -5,7 +5,7 @@ meldt zich aan als `hablaya-tutor` en doet alleen mee aan ruimtes waarvoor de se
 expliciet een dispatch met die naam meegeeft (nooit automatisch).
 
 De dispatch-metadata (`ctx.job.metadata`) is JSON:
-`{"level", "scenario" | null, "greeting", "userName"}`.
+`{"level", "scenario" | null, "greeting", "userName", "tutor", "correction"}`.
 
 Start: `python -m hablaya_voice_agent.main <start|dev|download-files>`.
 """
@@ -56,16 +56,18 @@ async def entrypoint(ctx: JobContext) -> None:
     cfg = get_voice_config()
     meta = parse_metadata(ctx.job.metadata)
     log.info(
-        "entrypoint_start room=%s level=%s scenario=%s",
+        "entrypoint_start room=%s level=%s tutor=%s correction=%s scenario=%s",
         ctx.room.name,
         meta.level,
+        meta.tutor,
+        meta.correction,
         meta.scenario.id if meta.scenario else None,
     )
 
     session = build_session(
         stt=select_stt(cfg),
         llm=select_llm(cfg),
-        tts=select_tts(cfg),
+        tts=select_tts(cfg, meta.tutor),
         vad=ctx.proc.userdata["vad"],
         cfg=cfg,
     )

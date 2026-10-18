@@ -18,6 +18,7 @@ import {
   type TextStreamReader,
 } from 'livekit-client';
 import { loadStoredToken } from '@/src/services/authApi';
+import { TUTOR_NAMES, type TutorId, type CorrectionId } from '@/src/services/preferences';
 
 export type VoiceState =
   | 'connecting'
@@ -45,6 +46,9 @@ export interface VoiceScenario {
 
 export interface VoiceSessionOptions {
   level: string;
+  /** Defaults to Carlos / important on the server when omitted. */
+  tutor?: TutorId;
+  correction?: CorrectionId;
   scenario?: VoiceScenario;
   greeting?: string;
   onState: (state: VoiceState) => void;
@@ -96,6 +100,8 @@ async function fetchVoiceToken(options: VoiceSessionOptions): Promise<TokenRespo
       },
       body: JSON.stringify({
         level: options.level,
+        tutor: options.tutor,
+        correction: options.correction,
         scenario: options.scenario,
         greeting: options.greeting,
       }),
@@ -312,7 +318,7 @@ export function startVoiceSession(options: VoiceSessionOptions): VoiceSession {
 
   const sendText = async (text: string): Promise<void> => {
     if (stopped || room.state !== ConnectionState.Connected) {
-      throw new Error('Niet verbonden met Carlos. Tik op de microfoon om opnieuw te verbinden.');
+      throw new Error(`Niet verbonden met ${TUTOR_NAMES[options.tutor ?? 'carlos']}. Tik op de microfoon om opnieuw te verbinden.`);
     }
     try {
       await room.localParticipant.sendText(text, { topic: CHAT_TOPIC });

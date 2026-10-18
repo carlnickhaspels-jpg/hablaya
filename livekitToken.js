@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 
 const VALID_LEVELS = ['silencioso', 'principiante', 'conversador', 'fluido', 'nativo'];
+const VALID_TUTORS = ['carlos', 'maria'];
+const VALID_CORRECTIONS = ['all', 'important', 'flow'];
 const SCENARIO_FIELDS = ['id', 'title', 'titleEs', 'context', 'theme'];
 const SCENARIO_MAX_LEN = 500;
 const GREETING_MAX_LEN = 1000;
@@ -26,7 +28,10 @@ function normalizeTokenRequest(body, userLevel) {
 
   const greeting = truncate(b.greeting, GREETING_MAX_LEN);
 
-  return { level, scenario, greeting };
+  const tutor = VALID_TUTORS.includes(b.tutor) ? b.tutor : 'carlos';
+  const correction = VALID_CORRECTIONS.includes(b.correction) ? b.correction : 'important';
+
+  return { level, scenario, greeting, tutor, correction };
 }
 
 // Mints a LiveKit access token (HS256 JWT) with explicit agent dispatch via
@@ -69,4 +74,6 @@ module.exports = {
   mintLiveKitToken,
   normalizeTokenRequest,
   VALID_LEVELS,
+  VALID_TUTORS,
+  VALID_CORRECTIONS,
 };

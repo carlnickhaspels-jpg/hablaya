@@ -1,4 +1,5 @@
 import { Scenario } from '../types';
+import type { TutorId } from '../services/preferences';
 
 export const scenarios: Scenario[] = [
   // ── Travel (5) ──────────────────────────────────────────────
@@ -393,3 +394,22 @@ export const getScenariosByDifficulty = (difficulty: Scenario['difficulty']): Sc
 
 export const getScenarioById = (id: string): Scenario | undefined =>
   scenarios.find((s) => s.id === id);
+
+// Lesson texts hard-code Carlos. For María the name and the gendered words are swapped on a copy
+// (the scenario data itself is not duplicated). Roleplay characters stay as they are.
+const forMaria = (text: string): string =>
+  text
+    .replace(/Carlos/g, 'María')
+    .replace(/tu profesor/g, 'tu profesora')
+    .replace(/je leraar/g, 'je lerares');
+
+export const forTutor = (scenario: Scenario | undefined, tutor: TutorId): Scenario | undefined => {
+  if (!scenario || tutor !== 'maria' || scenario.theme !== 'lesson') return scenario;
+  return {
+    ...scenario,
+    description: forMaria(scenario.description),
+    context: forMaria(scenario.context),
+    starterPrompt: forMaria(scenario.starterPrompt),
+    starterPromptNl: scenario.starterPromptNl ? forMaria(scenario.starterPromptNl) : scenario.starterPromptNl,
+  };
+};

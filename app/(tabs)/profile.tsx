@@ -17,6 +17,15 @@ import PickerModal, { PickerOption } from '@/src/components/PickerModal';
 import ConfirmModal from '@/src/components/ConfirmModal';
 import FeedbackModal from '@/src/components/FeedbackModal';
 import { CLIENT_VERSION, CLIENT_BUILD_AT } from '@/src/constants/build';
+import {
+  getPreferences,
+  setTutor as saveTutor,
+  setCorrection as saveCorrection,
+  DEFAULT_TUTOR,
+  DEFAULT_CORRECTION,
+  type TutorId,
+  type CorrectionId,
+} from '@/src/services/preferences';
 
 const LEVEL_DISPLAY: Record<string, string> = {
   silencioso: 'Silencioso',
@@ -32,6 +41,17 @@ const LEVEL_DESCRIPTIONS: Record<string, string> = {
   conversador: 'Intermediate — full conversations',
   fluido: 'Fluent — nuance and complexity',
   nativo: 'Native-like — refining accent',
+};
+
+const TUTOR_LABELS: Record<TutorId, string> = {
+  carlos: 'Carlos (man)',
+  maria: 'María (vrouw)',
+};
+
+const CORRECTION_LABELS: Record<CorrectionId, string> = {
+  all: 'All errors',
+  important: 'Important only',
+  flow: 'Flow mode',
 };
 
 interface SettingRowProps {
@@ -95,17 +115,27 @@ function SettingRow({
 }
 
 export default function ProfileScreen() {
-  const { user, setUser, setIsOnboarded, signOut, updateUser } = useApp();
+  const { user, setUser, signOut, updateUser } = useApp();
   const router = useRouter();
 
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [tutorVoice, setTutorVoice] = useState('Female - Natural');
-  const [speakingSpeed, setSpeakingSpeed] = useState('Normal');
-  const [correctionIntensity, setCorrectionIntensity] = useState('Important only');
+  // Tutor and correction choice are stored on the device (see preferences.ts)
+  const [tutor, setTutor] = useState<TutorId>(DEFAULT_TUTOR);
+  const [correction, setCorrection] = useState<CorrectionId>(DEFAULT_CORRECTION);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    getPreferences().then((prefs) => {
+      if (cancelled) return;
+      setTutor(prefs.tutor);
+      setCorrection(prefs.correction);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Modal state
-  const [pickerOpen, setPickerOpen] = useState<null | 'level' | 'voice' | 'speed' | 'correction'>(null);
-  const [showRetakeConfirm, setShowRetakeConfirm] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState<null | 'level' | 'voice' | 'correction'>(null);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [showNuclearConfirm, setShowNuclearConfirm] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -216,12 +246,6 @@ export default function ProfileScreen() {
     updateUser({ level: newLevel });
   };
 
-  const confirmRetake = () => {
-    setShowRetakeConfirm(false);
-    setIsOnboarded(false);
-    router.push('/(onboarding)/level-select');
-  };
-
   const confirmSignOut = async () => {
     setShowSignOutConfirm(false);
     await signOut();
@@ -238,28 +262,25 @@ export default function ProfileScreen() {
   ];
 
   const voiceOptions: PickerOption[] = [
-    { key: 'Female - Natural', label: 'Female — Natural' },
-    { key: 'Male - Natural', label: 'Male — Natural' },
-    { key: 'Female - Warm', label: 'Female — Warm' },
-  ];
-
-  const speedOptions: PickerOption[] = [
-    { key: 'Slow', label: 'Slow', description: 'For beginners' },
-    { key: 'Normal', label: 'Normal', description: 'Conversational pace' },
-    { key: 'Fast', label: 'Fast', description: 'Native speed' },
+    { key: 'carlos', label: TUTOR_LABELS.carlos },
+    { key: 'maria', label: TUTOR_LABELS.maria },
   ];
 
   const correctionOptions: PickerOption[] = [
-    { key: 'All errors', label: 'All errors', description: 'Correct every mistake' },
-    { key: 'Important only', label: 'Important only', description: 'Only meaningful corrections' },
-    { key: 'Flow mode', label: 'Flow mode', description: 'Minimal interruptions' },
+    { key: 'all', label: CORRECTION_LABELS.all, description: 'Correct every mistake' },
+    { key: 'important', label: CORRECTION_LABELS.important, description: 'Only meaningful corrections' },
+    { key: 'flow', label: CORRECTION_LABELS.flow, description: 'Minimal interruptions' },
   ];
 
   const handlePickerSelect = (key: string) => {
     if (pickerOpen === 'level') updateLevel(key as FluencyLevel);
-    else if (pickerOpen === 'voice') setTutorVoice(key);
-    else if (pickerOpen === 'speed') setSpeakingSpeed(key);
-    else if (pickerOpen === 'correction') setCorrectionIntensity(key);
+    else if (pickerOpen === 'voice') {
+      setTutor(key as TutorId);
+      saveTutor(key as TutorId);
+    } else if (pickerOpen === 'correction') {
+      setCorrection(key as CorrectionId);
+      saveCorrection(key as CorrectionId);
+    }
     setPickerOpen(null);
   };
 
@@ -315,8 +336,8 @@ export default function ProfileScreen() {
             <View style={styles.settingDivider} />
             <SettingRow
               icon="refresh-outline"
-              label="Retake Speaking Assessment"
-              onPress={() => setShowRetakeConfirm(true)}
+              label="Change Level"
+              onPress={() => setPickerOpen('level')}
               iconColor={colors.deepTeal}
             />
           </View>
@@ -329,52 +350,15 @@ export default function ProfileScreen() {
             <SettingRow
               icon="mic-outline"
               label="Tutor Voice"
-              value={tutorVoice}
+              value={TUTOR_LABELS[tutor]}
               onPress={() => setPickerOpen('voice')}
-            />
-            <View style={styles.settingDivider} />
-            <SettingRow
-              icon="speedometer-outline"
-              label="Speaking Speed"
-              value={speakingSpeed}
-              onPress={() => setPickerOpen('speed')}
             />
             <View style={styles.settingDivider} />
             <SettingRow
               icon="school-outline"
               label="Correction Intensity"
-              value={correctionIntensity}
+              value={CORRECTION_LABELS[correction]}
               onPress={() => setPickerOpen('correction')}
-            />
-          </View>
-        </View>
-
-        {/* Account */}
-        <View style={styles.settingSection}>
-          <Text style={styles.sectionTitle}>Account</Text>
-          <View style={styles.settingGroup}>
-            <SettingRow
-              icon="diamond-outline"
-              label="Subscription"
-              value={isPremium ? 'Premium' : 'Free'}
-              iconColor={isPremium ? colors.softOrange : colors.deepTeal}
-              onPress={() => router.push('/(tabs)/subscription')}
-            />
-            <View style={styles.settingDivider} />
-            <SettingRow
-              icon="language-outline"
-              label="Language"
-              value="English"
-              onPress={() => {}}
-            />
-            <View style={styles.settingDivider} />
-            <SettingRow
-              icon="notifications-outline"
-              label="Notifications"
-              isToggle
-              toggleValue={notificationsEnabled}
-              onToggle={setNotificationsEnabled}
-              showChevron={false}
             />
           </View>
         </View>
@@ -383,31 +367,6 @@ export default function ProfileScreen() {
         <View style={styles.settingSection}>
           <Text style={styles.sectionTitle}>About</Text>
           <View style={styles.settingGroup}>
-            <SettingRow
-              icon="help-circle-outline"
-              label="Help & FAQ"
-              onPress={() => {}}
-            />
-            <View style={styles.settingDivider} />
-            <SettingRow
-              icon="shield-checkmark-outline"
-              label="Privacy Policy"
-              onPress={() => {}}
-            />
-            <View style={styles.settingDivider} />
-            <SettingRow
-              icon="document-text-outline"
-              label="Terms of Service"
-              onPress={() => {}}
-            />
-            <View style={styles.settingDivider} />
-            <SettingRow
-              icon="star-outline"
-              label="Rate the App"
-              onPress={() => {}}
-              iconColor={colors.softOrange}
-            />
-            <View style={styles.settingDivider} />
             <SettingRow
               icon="chatbox-ellipses-outline"
               label="Send Feedback"
@@ -493,16 +452,7 @@ export default function ProfileScreen() {
         title="Tutor Voice"
         message="Choose how your AI tutor sounds."
         options={voiceOptions}
-        selectedKey={tutorVoice}
-        onSelect={handlePickerSelect}
-        onCancel={() => setPickerOpen(null)}
-      />
-      <PickerModal
-        visible={pickerOpen === 'speed'}
-        title="Speaking Speed"
-        message="How fast should the tutor speak?"
-        options={speedOptions}
-        selectedKey={speakingSpeed}
+        selectedKey={tutor}
         onSelect={handlePickerSelect}
         onCancel={() => setPickerOpen(null)}
       />
@@ -511,20 +461,12 @@ export default function ProfileScreen() {
         title="Correction Intensity"
         message="How often should the tutor correct your Spanish?"
         options={correctionOptions}
-        selectedKey={correctionIntensity}
+        selectedKey={correction}
         onSelect={handlePickerSelect}
         onCancel={() => setPickerOpen(null)}
       />
 
       {/* Confirm modals */}
-      <ConfirmModal
-        visible={showRetakeConfirm}
-        title="Retake Speaking Assessment"
-        message="Want to redo the spoken level assessment? Your progress (streak, minutes, conversations) stays — only your assigned level changes."
-        confirmText="Retake"
-        onConfirm={confirmRetake}
-        onCancel={() => setShowRetakeConfirm(false)}
-      />
       <ConfirmModal
         visible={showSignOutConfirm}
         title="Sign Out"

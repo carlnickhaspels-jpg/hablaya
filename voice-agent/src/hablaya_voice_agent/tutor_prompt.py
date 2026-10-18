@@ -17,6 +17,11 @@ from typing import Any
 
 LEVELS = ("silencioso", "principiante", "conversador", "fluido", "nativo")
 DEFAULT_LEVEL = "principiante"
+TUTORS = ("carlos", "maria")
+DEFAULT_TUTOR = "carlos"
+CORRECTIONS = ("all", "important", "flow")
+DEFAULT_CORRECTION = "important"
+TUTOR_NAMES = {"carlos": "Carlos", "maria": "María"}
 
 TUTOR_SYSTEM_PROMPT = '''You are HablaYa, a warm and EXPLICIT Spanish teacher for a Dutch native speaker (also speaks English) who is learning Spanish.
 
@@ -221,6 +226,31 @@ class TutorMetadata:
     scenario: Scenario | None = None
     greeting: str = ""
     user_name: str = ""
+    tutor: str = DEFAULT_TUTOR
+    correction: str = DEFAULT_CORRECTION
+
+
+# Persoonsblok per tutor: naam, geslacht en de bijpassende vormen in het Spaans en Nederlands.
+PERSONA_PROMPTS = {
+    "carlos": """TUTOR PERSONA:
+Your name is Carlos and you are a man. When you refer to yourself, use masculine forms in Spanish
+and Dutch: "profesor", "encantado", "soy Carlos", "ik ben Carlos, je leraar".""",
+    "maria": """TUTOR PERSONA:
+Your name is María and you are a woman. When you refer to yourself, use feminine forms in Spanish
+and Dutch: "profesora", "encantada", "soy María", "ik ben María, je lerares".""",
+}
+
+# Correctieblok per instelling. "all" is het gedrag van de basisprompt.
+CORRECTION_PROMPTS = {
+    "all": """CORRECTION INTENSITY: ALL ERRORS
+Correct every mistake the student makes explicitly, as described above.""",
+    "important": """CORRECTION INTENSITY: IMPORTANT ONLY
+Only correct mistakes that hurt understanding or that are high-frequency beginner errors. Let small
+slips pass without comment and keep the conversation moving.""",
+    "flow": """CORRECTION INTENSITY: FLOW MODE
+Do not interrupt the conversation with corrections. At most, occasionally recast the correct form
+naturally in your reply, without pointing out the mistake.""",
+}
 
 
 def _text(value: Any) -> str:
@@ -245,7 +275,7 @@ def parse_metadata(raw: str) -> TutorMetadata:
     """Lees de dispatch-metadata (JSON-tekst uit `ctx.job.metadata`).
 
     Nooit een fout: lege of ongeldige JSON en ontbrekende velden geven de standaardwaarden
-    (level "principiante", geen scenario, lege begroeting en naam).
+    (level "principiante", tutor "carlos", correctie "important", geen scenario, lege begroeting en naam).
     """
     try:
         data = json.loads(raw) if raw and raw.strip() else {}
@@ -255,11 +285,23 @@ def parse_metadata(raw: str) -> TutorMetadata:
         return TutorMetadata()
 
     level = _text(data.get("level")).strip().lower()
+    tutor = _text(data.get("tutor")).strip().lower()
+    correction = _text(data.get("correction")).strip().lower()
     return TutorMetadata(
         level=level if level in LEVELS else DEFAULT_LEVEL,
         scenario=_parse_scenario(data.get("scenario")),
         greeting=_text(data.get("greeting")).strip(),
         user_name=_text(data.get("userName")).strip(),
+        tutor=tutor if tutor in TUTORS else DEFAULT_TUTOR,
+        correction=correction if correction in CORRECTIONS else DEFAULT_CORRECTION,
+    )
+
+
+def _lesson_mode_prompt(tutor: str) -> str:
+    """LESSON_MODE_PROMPT met de naam van de gekozen tutor (de constante blijft woordelijk)."""
+    name = TUTOR_NAMES[tutor]
+    return LESSON_MODE_PROMPT.replace("You are CARLOS", f"You are {name.upper()}").replace(
+        "Each Carlos-turn", f"Each {name}-turn"
     )
 
 
@@ -273,5 +315,7 @@ def build_instructions(meta: TutorMetadata) -> str:
         prompt += f"\nSCENARIO CONTEXT: {scenario.context}"
         prompt += "\nStay in character for this scenario."
         if scenario.theme == "lesson":
-            prompt += "\n\n" + LESSON_MODE_PROMPT
+            prompt += "\n\n" + _lesson_mode_prompt(meta.tutor)
+    prompt += "\n\n" + PERSONA_PROMPTS[meta.tutor]
+    prompt += "\n\n" + CORRECTION_PROMPTS[meta.correction]
     return prompt
